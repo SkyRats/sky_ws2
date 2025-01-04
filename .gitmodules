@@ -1,6 +1,8 @@
 [submodule "src/sky_vision2"]
 	path = src/sky_vision2
 	url = git@github.com:SkyRats/sky_vision2.git
+	branch = main
 [submodule "src/sky_sim2"]
 	path = src/sky_sim2
 	url = git@github.com:SkyRats/sky_sim2.git
+	branch = main
