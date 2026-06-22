@@ -6,3 +6,6 @@
 	path = src/sky_sim2
 	url = git@github.com:SkyRats/sky_sim2.git
 	branch = main
+[submodule "src/indoor_2026"]
+	path = src/indoor_2026
+	url = git@github.com:SkyRats/indoor_2026.git
