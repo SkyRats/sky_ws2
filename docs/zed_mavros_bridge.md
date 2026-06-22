@@ -32,11 +32,11 @@ Both `ZedMavrosBridge` and [`pose_relay`](pose_relay.md) solve the same top-leve
 | Input topic | `/mavros/zed/pose` (`PoseStamped`) | `/zed/zed_node/odom` (`Odometry`) |
 | Input data | Position only | Position **and** velocity |
 | Publishes velocity | No | Yes (`/mavros/vision_speed/speed_twist`) |
-| Frame correction | 180° Z rotation: negate X and Y, rotate quaternion | X-only negation |
+| Frame correction | negate Y, negate qy/qz (to NED) | negate Y, negate qy/qz (to NED) |
 | Sets home | No | Yes (EKF health watchdog) |
 | Production role | Earlier simpler version | Current production node |
 
-The input topic difference is the key reason the frame corrections differ. `pose_relay` subscribes to the ZED **pose** topic, which is in the ZED map frame (X=forward, Y=left). `ZedMavrosBridge` subscribes to the ZED **odom** topic, which is in the odometry frame where only the X axis is inverted relative to MAVROS ENU. Applying the `pose_relay` rotation to odom data would produce incorrect results.
+Both bridges apply the same 180° Z rotation: the ZED odom frame and ZED pose frame both have X and Y inverted relative to MAVROS ENU in our mounting configuration (X=West, Y=South).
 
 **Running both nodes simultaneously will produce duplicate messages on `/mavros/vision_pose/pose`**, which confuses the EKF. Only one should be active at a time. On the sky_vision2 stack, `pose_relay` is not launched.
 
@@ -84,30 +84,69 @@ sensor_qos = QoSProfile(
 
 This profile matches the ZED driver's sensor QoS exactly.
 
-## Coordinate frame correction — X-only negation
+## MAVROS frame convention — NED required for ArduPilot
 
-The ZED odometry frame has its X axis inverted relative to the ENU (East-North-Up) frame that MAVROS and ArduPilot expect. Only X is negated; Y and Z are passed through unchanged:
+MAVROS `vision_pose` plugin with ArduPilot does **not** perform ENU→NED frame conversion. It forwards the incoming `PoseStamped` directly as `VISION_POSITION_ESTIMATE`, which ArduPilot EKF3 expects in **NED** (X=North, Y=East, Z=Down).
+
+The bridge publishes NED directly. Do not publish ENU expecting MAVROS to convert.
+
+## Coordinate frame correction — Y-axis negation
+
+ZED odom frame (hardware-verified): **X=North, Y=West, Z=Down**.
+
+Only Y needs to be negated to match NED. X and Z are already NED-aligned:
 
 ```
-ZED odom frame → MAVROS ENU frame
+ZED odom → NED (published to MAVROS)
 
-position.x  →  -position.x
-position.y  →   position.y   (unchanged)
-position.z  →   position.z   (unchanged)
+position.x  →   position.x    (North, unchanged)
+position.y  →  -position.y    (West → East)
+position.z  →   position.z    (Down, unchanged)
 
-twist.linear.x  →  -twist.linear.x
-twist.linear.y  →   twist.linear.y   (unchanged)
-twist.linear.z  →   twist.linear.z   (unchanged)
+twist.linear.x  →   twist.linear.x
+twist.linear.y  →  -twist.linear.y
+twist.linear.z  →   twist.linear.z
 ```
 
-The quaternion is **not** rotated. This is correct for the odom frame; only a single axis flip is required, not a full 180° rotation around Z. Compare with [`pose_relay`](pose_relay.md), which used the ZED **pose** frame and needed both X and Y negated plus a full quaternion rotation — that is a different frame with a different convention.
+The quaternion components for the axes that flip (Y and Z) are negated. Flipping the Y axis reverses the positive rotation direction for pitch (rotation around Y) and yaw (rotation around Z, since handedness changes):
 
-The correction is applied in the callback before publishing:
+```
+orientation.x  →   qx    (roll around North, unchanged)
+orientation.y  →  -qy    (pitch sign reverses with Y axis)
+orientation.z  →  -qz    (yaw sign reverses with Y axis flip)
+orientation.w  →   qw
+```
+
+The correction is applied in `_odom_cb`:
 
 ```python
-pose_msg.pose.position.x = -msg.pose.pose.position.x
-speed_msg.twist.linear.x = -msg.twist.twist.linear.x
+qx = msg.pose.pose.orientation.x
+qy = msg.pose.pose.orientation.y
+qz = msg.pose.pose.orientation.z
+qw = msg.pose.pose.orientation.w
+
+pose_msg.pose.position.x =  msg.pose.pose.position.x
+pose_msg.pose.position.y = -msg.pose.pose.position.y
+pose_msg.pose.position.z =  msg.pose.pose.position.z
+pose_msg.pose.orientation.x =  qx
+pose_msg.pose.orientation.y = -qy
+pose_msg.pose.orientation.z = -qz
+pose_msg.pose.orientation.w =  qw
+
+speed_msg.twist.linear.x =  msg.twist.twist.linear.x
+speed_msg.twist.linear.y = -msg.twist.twist.linear.y
+speed_msg.twist.linear.z =  msg.twist.twist.linear.z
 ```
+
+### Verification
+
+After launch, echo `/mavros/vision_pose/pose` and physically move the drone:
+
+| Movement | `position` field | Expected sign |
+|---|---|---|
+| Move North | `.x` | Increases |
+| Move East | `.y` | Increases |
+| Move Up | `.z` | Decreases (Z=Down) |
 
 ## EKF health watchdog and auto-set home
 

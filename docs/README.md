@@ -100,7 +100,8 @@ ZED2i camera
     │  /zed/zed_node/odom (Odometry, ~30 Hz, BEST_EFFORT QoS)
     ▼
 ZedMavrosBridge (sky_vision2)
-    ├─ negates position.x and twist.linear.x
+    ├─ negates position.y and twist.linear.y (ZED Y=West → NED Y=East)
+    ├─ negates quaternion qy and qz (pitch/yaw sign flip)
     ├─ publishes /mavros/vision_pose/pose    (PoseStamped)
     ├─ publishes /mavros/vision_speed/speed_twist (TwistStamped)
     │
@@ -132,10 +133,10 @@ ArduPilot flight controller ───────┘
 
 Two bridge implementations exist. Only one should be running at a time:
 
-| Stack | Bridge node | Input | Velocity to EKF | Auto home |
-|-------|-------------|-------|-----------------|-----------|
-| `sky_vision2` | `ZedMavrosBridge` | `/zed/zed_node/odom` (Odometry) | Yes | Yes |
-| `indoor_2026` | `pose_relay` | `/mavros/zed/pose` (PoseStamped) | No | No |
+| Stack | Bridge node | Input | Frame correction (→ NED) | Velocity to EKF | Auto home |
+|-------|-------------|-------|--------------------------|-----------------|-----------|
+| `sky_vision2` | `ZedMavrosBridge` | `/zed/zed_node/odom` (Odometry) | negate Y, negate qy/qz | Yes | Yes |
+| `indoor_2026` | `pose_relay` | `/mavros/zed/pose` (PoseStamped) | negate X and Y, rotate quat 180° Z (needs review) | No | No |
 
 `sky_vision2` is the current production stack. `indoor_2026/pose_relay` is kept for reference.
 

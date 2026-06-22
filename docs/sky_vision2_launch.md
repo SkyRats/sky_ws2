@@ -292,17 +292,17 @@ ros2 launch sky_vision2 zed_mavros_fc.launch.py zed_odom_topic:=/zed/zed_node/od
 | Variable | Value |
 |---|---|
 | `ROS_DOMAIN_ID` | `42` |
-
-**`FASTRTPS_DEFAULT_PROFILES_FILE` is not set.** See the [Gotcha](#gotcha--fastdds-no-shm-missing-in-zed_mavros_fc) section below.
+| `FASTRTPS_DEFAULT_PROFILES_FILE` | `install/.../config/fastdds_no_shm.xml` |
 
 ### Full launch graph
 
 ```
 LaunchDescription
+  ├── SetEnvironmentVariable: ROS_DOMAIN_ID = 42
+  ├── SetEnvironmentVariable: FASTRTPS_DEFAULT_PROFILES_FILE → fastdds_no_shm.xml
   ├── DeclareLaunchArgument: fcu_url
   ├── DeclareLaunchArgument: camera_model
   ├── DeclareLaunchArgument: zed_odom_topic
-  ├── SetEnvironmentVariable: ROS_DOMAIN_ID = 42
   ├── IncludeLaunchDescription: zed_wrapper/launch/zed_camera.launch.py
   │     launch_arguments: {camera_model: <arg>}
   ├── Node: mavros_node
@@ -437,40 +437,30 @@ ros2 launch sky_vision2 mavros_fc.launch.py fcu_url:=tcp://127.0.0.1:5760
 
 ---
 
-## Gotcha — FastDDS no-SHM missing in zed_mavros_fc
-
-`mavros_fc.launch.py` sets `FASTRTPS_DEFAULT_PROFILES_FILE` to disable shared-memory DDS transport. `zed_mavros_fc.launch.py` does **not**.
-
-### Why it matters
-
-When MAVROS is killed (`Ctrl+C`) and relaunched without clearing `/dev/shm`, FastDDS finds stale type-signature entries from the previous run. If the type hash does not match — which can happen after any `colcon build` that changed a `mavros_msgs` field — DDS silently refuses to match publisher and subscriber. Topics appear to exist (`ros2 topic list` shows them) but carry no data.
+## FastDDS no-SHM — which launch files set it
 
 | Launch file | SHM disabled | Safe to restart MAVROS without clearing `/dev/shm` |
 |---|---|---|
 | `mavros_fc.launch.py` | Yes | Yes |
-| `zed_mavros_fc.launch.py` | **No** | **No** |
+| `zed_mavros_fc.launch.py` | Yes | Yes |
 | `zed_mavros_sitl.launch.py` | **No** | **No** |
-| `zed.launch.py` | No (ZED only, no MAVROS) | N/A |
+| `zed.launch.py` | N/A (ZED only, no MAVROS) | N/A |
 
-### Workaround for zed_mavros_fc.launch.py
-
-Option A — clear stale SHM entries before relaunching:
+`zed_mavros_sitl.launch.py` is the only launch file that does not disable shared-memory DDS transport. Before restarting MAVROS under that file, clear stale SHM entries:
 
 ```bash
 rm -f /dev/shm/fastrtps_*
-ros2 launch sky_vision2 zed_mavros_fc.launch.py
+ros2 launch sky_vision2 zed_mavros_sitl.launch.py ...
 ```
 
-Option B — set the env variable in the terminal before launching:
+Or set the env variable before launching:
 
 ```bash
 export FASTRTPS_DEFAULT_PROFILES_FILE=$(ros2 pkg prefix sky_vision2)/share/sky_vision2/config/fastdds_no_shm.xml
-ros2 launch sky_vision2 zed_mavros_fc.launch.py
+ros2 launch sky_vision2 zed_mavros_sitl.launch.py fcu_url:=tcp://127.0.0.1:5760
 ```
 
-Option B works because the terminal environment is inherited by the `ros2 launch` process, which passes it to child nodes — even though the launch file doesn't set it explicitly.
-
-The correct fix is to add the `SetEnvironmentVariable` and `no_shm` path block to `zed_mavros_fc.launch.py` and `zed_mavros_sitl.launch.py`, matching what `mavros_fc.launch.py` already does. See [sky_vision2 config](sky_vision2_config.md#fastdds_no_shmxml) for the full mechanism.
+For SITL development, the practical workaround is to use `mavros_fc.launch.py` (which does set the profile) with `test_zed_odom` providing synthetic odometry in a second terminal — no real ZED needed. See [test_zed_odom](test_zed_odom.md).
 
 ---
 
