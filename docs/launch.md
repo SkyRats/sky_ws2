@@ -1,74 +1,160 @@
-# Launch File — mavros_zed.launch.py
+# How to start MAVROS and ZED
 
-**Source:** `src/indoor_2026/launch/mavros_zed.launch.py`  
-**Package:** `indoor_2026` (`src/indoor_2026/`)
+Step-by-step guide for starting the drone's software stack on the Jetson.
 
-Starts the hardware drivers and pose bridge needed before running any mission: MAVROS (flight controller link), the ZED camera wrapper, and the pose relay node.
+---
 
-## Usage
+## Before you start
 
-```bash
-# After building and sourcing:
-ros2 launch indoor_2026 mavros_zed.launch.py
-```
-
-## What it launches
-
-### 1. MAVROS — `apm.launch`
-
-Includes `mavros/launch/apm.launch` (the ArduPilot-specific MAVROS launch). This sets up all MAVLink-to-ROS2 bridges:
-
-- `/mavros/local_position/pose` — EKF-fused local position
-- `/mavros/vision_pose/pose` — external vision pose input (for ZED odometry)
-- `/mavros/setpoint_position/local` — position setpoint subscriber
-- `/mavros/setpoint_raw/local` — raw setpoint subscriber
-- `/mavros/setpoint_velocity/cmd_vel_unstamped` — velocity setpoint subscriber
-- `/mavros/set_mode`, `/mavros/cmd/arming`, `/mavros/cmd/takeoff` — services
-
-The `apm.launch` file itself is in the installed `mavros` package. Connection is configured to `/dev/ttyTHS1:921600` (Jetson UART Telem2 at 921600 baud).
-
-### 2. ZED Wrapper — `zed_camera.launch.py`
-
-Includes `zed_wrapper/launch/zed_camera.launch.py` with:
-
-```python
-launch_arguments={'camera_model': 'zed2i'}
-```
-
-Publishes:
-- `/zed/zed_node/left/image_rect_color` — rectified RGB (consumed by [ZedSubscriber](zed_subscriber.md))
-- `/zed/zed_node/depth/depth_registered` — registered depth map
-- `/zed/zed_node/odom` / `/zed/zed_node/pose` — visual odometry
-
-> **Note:** The comment in the file says to switch `camera_model` to `zedm` for the ZED Mini. Current hardware is ZED2i.
-
-### 3. Pose relay — `pose_relay`
-
-Runs the `indoor_2026/pose_relay.py` node, which bridges ZED pose to MAVROS external vision:
-
-```
-/mavros/zed/pose  →  [pose_relay]  →  /mavros/vision_pose/pose
-```
-
-Without this node, MAVROS has no publisher on `/mavros/vision_pose/pose` and ArduPilot receives no external position estimate. See [pose_relay.md](pose_relay.md) for details on the coordinate frame correction applied.
-
-## Build
+Every terminal you open needs these two lines:
 
 ```bash
-cd ~/sky_ws2
-colcon build --packages-select indoor_2026
-source install/setup.bash
+source ~/sky_ws2/install/setup.bash
+export ROS_DOMAIN_ID=42
 ```
 
-The launch file is installed via `setup.py`:
+If you added them to your `.bashrc`, they run automatically on every new terminal.
 
-```python
-(os.path.join('share', 'indoor_2026', 'launch'), glob('launch/*.launch.py'))
+---
+
+## Option 1 — Everything in one command (recommended)
+
+This starts the ZED camera, MAVROS, and the vision bridge all at once:
+
+```bash
+ros2 launch sky_vision2 zed_mavros_fc.launch.py
 ```
 
-## See also
+**Wait for this line in the logs:**
+```
+HOME SET from vision EKF — ready to arm
+```
 
-- [pose_relay.md](pose_relay.md) — the vision pose bridge node
-- [ZedSubscriber](zed_subscriber.md) — consumes ZED topics
-- [Mav](communication.md) — consumes MAVROS topics
-- [README](README.md) — full startup sequence
+That means ArduPilot has a stable position estimate and you can arm the drone.
+
+> This takes about 20–30 seconds from launch. Keep the drone still during that time.
+
+---
+
+## Option 2 — Start ZED and MAVROS in separate terminals
+
+Use this if you need to restart MAVROS without restarting the ZED camera (ZED takes ~15 s to warm up).
+
+**Terminal 1 — ZED camera:**
+```bash
+ros2 launch sky_vision2 zed.launch.py
+```
+
+Wait until you see ZED publishing (takes ~15 s):
+```bash
+# In a new terminal:
+ros2 topic hz /zed/zed_node/odom   # should show ~30 Hz
+```
+
+**Terminal 2 — MAVROS + bridge:**
+```bash
+ros2 launch sky_vision2 mavros_fc.launch.py
+```
+
+Again, wait for:
+```
+HOME SET from vision EKF — ready to arm
+```
+
+---
+
+## Option 3 — Full autonomous flight (competition)
+
+This starts everything **and** automatically arms and takes off:
+
+```bash
+ros2 launch indoor_2026 full_flight_test.py
+```
+
+> Default takeoff altitude is 1.5 m. Change it with `takeoff_altitude:=2.0`.
+
+Expected log sequence:
+```
+HOME SET from vision EKF — ready to arm
+FCU conectado.
+Modo GUIDED ativo.
+Drone ARMADO.
+Comando takeoff enviado para 1.5 m.
+```
+
+---
+
+## Connecting to SITL instead of real hardware
+
+Replace the default serial port with the SITL TCP address:
+
+```bash
+# Start ArduPilot SITL first (separate terminal):
+cd ~/ardupilot/ArduCopter && sim_vehicle.py --console --map -w
+
+# Then start MAVROS + bridge pointed at SITL:
+ros2 launch sky_vision2 mavros_fc.launch.py fcu_url:=tcp://127.0.0.1:5760
+
+# And inject fake ZED odometry (no real camera needed):
+ros2 run sky_vision2 test_zed_odom
+```
+
+---
+
+## Verify everything is working
+
+Run these checks in a new terminal after launch:
+
+```bash
+# Is MAVROS connected to the flight controller?
+ros2 topic echo /mavros/state --once
+# Look for: connected: True
+
+# Is the ZED publishing?
+ros2 topic hz /zed/zed_node/odom
+# Should be ~30 Hz
+
+# Is the bridge forwarding data to ArduPilot?
+ros2 topic hz /mavros/vision_pose/pose
+ros2 topic hz /mavros/vision_speed/speed_twist
+# Both should be ~30 Hz
+```
+
+---
+
+## Something's wrong — common fixes
+
+**Topics exist but no data arrives after MAVROS restart:**
+```bash
+# Clear stale DDS shared memory and relaunch
+rm -f /dev/shm/fastrtps_*
+ros2 launch sky_vision2 mavros_fc.launch.py
+```
+
+**ZED odom topic not appearing:**
+- ZED takes ~15 s to initialize. Wait and re-check.
+- Make sure the ZED cable (USB-C) is plugged in.
+
+**HOME SET never appears:**
+- The EKF needs the drone to be still and the ZED to have good tracking. Check there's enough light and texture in the environment.
+- Check `ros2 topic echo /mavros/estimator_status` — `pos_horiz_rel` must become `True`.
+
+**MAVROS won't connect to Pixhawk:**
+- Check the UART cable between Jetson and Pixhawk.
+- Confirm your user is in the `dialout` group: `groups $USER | grep dialout`
+- If not: `sudo usermod -aG dialout $USER` then log out and back in.
+
+---
+
+## Kill everything
+
+```bash
+pkill -9 -f "mavros|zed|ros2 launch"
+rm -f /dev/shm/fastrtps_*
+```
+
+---
+
+## Known issues
+
+**Yaw is currently wrong.** Position (X, Y, Z) and velocity are verified correct on hardware, but the heading estimate from the vision EKF does not match physical orientation. Do not rely on yaw until this is fixed. Tracked in `sky_vision2/zed_mavros_bridge.py`.
