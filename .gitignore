@@ -10,3 +10,4 @@ mav.parm
 mav.tlog
 mav.tlog.raw
 src/
+!src/indoor_2026/
