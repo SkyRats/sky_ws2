@@ -10,3 +10,6 @@
 	path = src/sky_vision2
 	url = git@github.com:SkyRats/sky_vision2.git
 	branch = imav_2026
+[submodule "src/indoor_2026"]
+	path = src/indoor_2026
+	url = git@github.com:SkyRats/indoor_2026.git
