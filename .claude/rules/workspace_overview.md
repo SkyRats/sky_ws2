@@ -1,15 +1,15 @@
-# sky_ws2 — Development Workspace
+# sky_ws2 — Only Workspace
 
 ## Role
 
-`sky_ws2` is the **development and simulation** workspace. The production workspace that flies on the real drone is `~/imav_2026_ws/`. Changes are developed here, then synced to production.
+`sky_ws2` is the **only ROS2 workspace** for the SkyRats IMAV 2026 project. It covers both hardware flights and SITL/Gazebo development. There is no separate production workspace.
 
 ## Package map
 
 | Package | Git status | Role |
 |---------|-----------|------|
 | `src/sky_vision2/` | Submodule — `github.com/SkyRats/sky_vision2` `imav_2026` branch | ZED→MAVROS bridge + launch files |
-| `src/indoor_2026/` | Directory in this repo | Convenience launcher: MAVROS + ZED + bridge in one command |
+| `src/indoor_2026/` | Submodule — `github.com/SkyRats/indoor_2026` | Full autonomous indoor stack: bridge + flight controller + motion |
 | `src/sky_sim2/` | Submodule — `github.com/SkyRats/sky_sim2` | Gazebo simulation (placeholder) |
 | `src/ardupilot/` | Submodule | ArduPilot firmware — not built via colcon |
 | `src/zed-ros2-wrapper-humble-v5.0.0/` | Submodule | ZED SDK ROS2 driver |
@@ -44,14 +44,6 @@ export ROS_DOMAIN_ID=42
 ```
 
 Required in every terminal before any `ros2` command.
-
-## Relationship to imav_2026_ws
-
-`sky_ws2` and `~/imav_2026_ws/` are two local clones of `github.com/SkyRats/sky_ws2.git`:
-- `sky_ws2` → `main` branch (development)
-- `imav_2026_ws` → tracks `origin/imav_2026` (production snapshots)
-
-`sky_vision2` is a shared submodule in both, tracking the same `imav_2026` branch.
 
 ## Submodule workflow
 

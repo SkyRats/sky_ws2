@@ -4,17 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this workspace is
 
-`sky_ws2` is the **development and simulation** workspace for the SkyRats IMAV 2026 drone project. It contains SITL (Software In The Loop) tooling, Gazebo integration, and the development copies of the production ROS2 packages. The **production** workspace that actually flies is `~/imav_2026_ws/`.
+`sky_ws2` is the **only ROS2 workspace** for the SkyRats IMAV 2026 drone project. It is used for both hardware flights and SITL/Gazebo development.
 
 ## Packages
 
 | Package | Role |
 |---------|------|
-| `src/sky_vision2/` | ZED→MAVROS vision bridge + launch files (dev copy; production is in `imav_2026_ws`) |
-| `src/indoor_2026/` | Indoor stack launch file — MAVROS + ZED + bridge in one command |
+| `src/sky_vision2/` | ZED→MAVROS vision bridge + launch files — production hardware stack |
+| `src/indoor_2026/` | Full indoor flight stack: MAVROS + ZED + bridge + flight controller + motion |
 | `src/sky_sim2/` | Gazebo simulation models and worlds (placeholder, minimal content currently) |
 | `src/ardupilot/` | ArduPilot firmware submodule |
 | `src/zed-ros2-wrapper-humble-v5.0.0/` | ZED SDK ROS2 driver |
+
+All three ROS2 packages (`sky_vision2`, `indoor_2026`, `sky_sim2`) are git submodules.
 
 ## Build
 
@@ -38,29 +40,25 @@ colcon test-result --verbose
 
 ```bash
 source install/setup.bash
+export ROS_DOMAIN_ID=42
 
-# Full hardware stack (ZED + MAVROS + bridge)
+# Full hardware stack (ZED + MAVROS + bridge) — production
 ros2 launch sky_vision2 zed_mavros_fc.launch.py
 
-# MAVROS + bridge only
+# MAVROS + bridge only (ZED already running separately)
 ros2 launch sky_vision2 mavros_fc.launch.py
 
-# Indoor stack (uses indoor_2026 launch — ZED topic differs, see note below)
-ros2 launch indoor_2026 mavros_zed.launch.py
+# Full autonomous indoor stack (bridge + flight controller + motion)
+ros2 launch indoor_2026 full_flight_test.py
 
-# SITL with ArduPilot DDS (not MAVROS)
-ros2 launch ardupilot_sitl sitl_dds_udp.launch.py transport:=udp4 \
-  refs:=$(ros2 pkg prefix ardupilot_sitl)/share/ardupilot_sitl/config/dds_xrce_profile.xml \
-  synthetic_clock:=True wipe:=False model:=quad speedup:=1 instance:=0 \
-  defaults:=$(ros2 pkg prefix ardupilot_sitl)/share/ardupilot_sitl/config/default_params/copter.parm,$(ros2 pkg prefix ardupilot_sitl)/share/ardupilot_sitl/config/default_params/dds_udp.parm \
-  sim_address:=127.0.0.1 master:=tcp:127.0.0.1:5760 sitl:=127.0.0.1:5501
+# SITL — synthetic odom, no hardware
+ros2 run sky_vision2 test_zed_odom                                          # terminal 1
+ros2 launch sky_vision2 mavros_fc.launch.py fcu_url:=tcp://127.0.0.1:5760  # terminal 2
 ```
 
-All nodes expect `ROS_DOMAIN_ID=42` in the terminal that consumes them.
+## Known issues
 
-## Known issues in this workspace
-
-### 1. `zed_mavros_sitl.launch.py` missing FastDDS no-SHM
+### `zed_mavros_sitl.launch.py` missing FastDDS no-SHM
 
 `src/sky_vision2/launch/zed_mavros_sitl.launch.py` does not set `FASTRTPS_DEFAULT_PROFILES_FILE`. Export it manually before launching:
 ```bash
