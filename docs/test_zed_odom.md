@@ -48,33 +48,32 @@ velocity.y =  radius * ω * cos(ω * t)  =  0.4 * cos(0.2t)
 velocity.z = 0.5
 ```
 
-The velocity is the analytic derivative of the position trajectory, so it is always tangent to the circle. This is important: it means the bridge can be checked for velocity correctness by verifying that the speed vector rotates smoothly at the same angular rate as position.
+The velocity is the analytic derivative of the position trajectory, so it is always tangent to the circle. **Note (2026-07-01): the bridge no longer forwards velocity at all** — the real ZED wrapper never populates `Odometry.twist`, so publishing a synthetic one here would test something the bridge intentionally discards. This synthetic `twist` field is unused by `BridgeVerifier` now; kept only in case velocity is derived from position in the bridge in the future.
 
 **Quaternion:** Built from the instantaneous yaw using `_yaw_to_quaternion(yaw)`, a local helper that computes `(x=0, y=0, z=sin(yaw/2), w=cos(yaw/2))` — the standard quaternion for a pure Z rotation.
 
 ### BridgeVerifier
 
-Subscribes to both bridge output topics and reports statistics.
+Subscribes to the bridge's pose output topic and reports statistics. No velocity subscription — the bridge doesn't publish vision_speed (removed 2026-07-01).
 
 | Subscription | Type | What it checks |
 |---|---|---|
-| `/mavros/vision_pose/pose` | `geometry_msgs/PoseStamped` | Position is flowing and X is negated |
-| `/mavros/vision_speed/speed_twist` | `geometry_msgs/TwistStamped` | Velocity is flowing |
+| `/mavros/mavros/pose` (verified 2026-07-01 — not `/mavros/vision_pose/pose`, see `sky_vision2`'s `bridge_node.md` for why) | `geometry_msgs/PoseStamped` | Position is flowing |
 
 **Per-message logging (every 30 pose messages):** Logs current position (x, y, z) from the vision topic. At 30 Hz this produces one log line per second — readable without being overwhelming.
 
-**5-second summary:** Every 5 seconds, logs total message counts for both topics:
+**5-second summary:** Every 5 seconds, logs the total message count:
 
 ```
-[BridgeVerifier] 5s summary: pose_msgs=150, speed_msgs=150
+[BridgeVerifier] 5s summary: pose_msgs=150
 ```
 
-Both counters should increase at approximately 30 messages per 5 seconds. A counter stuck at zero indicates the bridge is not forwarding that topic.
+The counter should increase at approximately 30 messages per 5 seconds. Stuck at zero indicates the bridge is not forwarding pose.
 
 **No-message warning:** If the pose counter is still zero when the first summary fires (5 seconds after start), a warning is logged:
 
 ```
-[BridgeVerifier] WARNING: no vision_pose messages received — is the bridge running?
+[BridgeVerifier] WARNING: no pose messages received — is the bridge running?
 ```
 
 This catches the two most common failure modes: bridge node not started, or QoS mismatch between publisher and verifier.
@@ -99,8 +98,7 @@ Terminal 2 — start the test tool:
     ros2 run sky_vision2 test_zed_odom
 
 Terminal 3 — optional, inspect raw topic values:
-    ros2 topic echo /mavros/vision_pose/pose
-    ros2 topic echo /mavros/vision_speed/speed_twist
+    ros2 topic echo /mavros/mavros/pose
 ```
 
 Expected output in Terminal 2 after 5 seconds:
@@ -108,7 +106,7 @@ Expected output in Terminal 2 after 5 seconds:
 ```
 [ZedOdomPublisher] Publishing odom: x=2.000, y=0.000, z=0.000
 [BridgeVerifier] pose x=-2.000  y=0.000  z=0.000
-[BridgeVerifier] 5s summary: pose_msgs=150, speed_msgs=150
+[BridgeVerifier] 5s summary: pose_msgs=150
 ```
 
 ## Verifying X-negation

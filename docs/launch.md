@@ -115,9 +115,8 @@ ros2 topic hz /zed/zed_node/odom
 # Should be ~30 Hz
 
 # Is the bridge forwarding data to ArduPilot?
-ros2 topic hz /mavros/vision_pose/pose
-ros2 topic hz /mavros/vision_speed/speed_twist
-# Both should be ~30 Hz
+ros2 topic hz /mavros/mavros/pose
+# Should be ~30 Hz (no vision_speed — bridge doesn't publish it, see zed_mavros_bridge.md)
 ```
 
 ---

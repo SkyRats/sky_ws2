@@ -118,8 +118,9 @@ Then restart all ROS2 nodes. This is the workaround; the XML file is the permane
       - home_position
       - imu
       - vision_pose
-      - vision_speed
 ```
+
+`vision_speed` was removed from this allowlist 2026-07-01 — the bridge no longer publishes vision_speed at all (the ZED wrapper's `publishOdom()` never fills `Odometry.twist`, so it would only ever forward a false zero-velocity measurement).
 
 ### Why this file exists — the cost of the default plugin set
 
@@ -137,13 +138,12 @@ On the Jetson Orin NX, the difference in startup time between full plugins and t
 |---|---|---|
 | `sys_status` | `/mavros/state`, `/mavros/battery_state` | Heartbeat monitoring; without this, no feedback that MAVROS is connected to FCU |
 | `sys_time` | Clock sync (internal) | Synchronizes the ROS2 clock with the FCU clock; critical for timestamp alignment between ZED odom and IMU |
-| `command` | `/mavros/cmd/arming`, `/mavros/cmd/set_home`, `/mavros/cmd/takeoff` | Arm, disarm, set_home (required by bridge), takeoff services |
+| `command` | `/mavros/cmd/arming`, `/mavros/cmd/takeoff` | Arm, disarm, takeoff services. (The bridge itself doesn't call `set_home` — ArduPilot sets the EKF origin automatically once vision data arrives.) |
 | `local_position` | `/mavros/local_position/pose` | EKF output position; used by `Mav` in simulation/indoor mode and for mission feedback |
 | `global_position` | `/mavros/global_position/global` | GPS global position; required for `set_home` with `current_gps=True` to resolve correctly |
 | `home_position` | `/mavros/home_position/home` | Publishes current home position; useful for debugging whether auto-set home succeeded |
 | `imu` | `/mavros/imu/data` | FCU IMU data; needed for any mission that uses attitude information |
-| `vision_pose` | `/mavros/vision_pose/pose` (subscriber) | **Core input:** receives position from bridge, forwards to FCU via `VISION_POSITION_ESTIMATE` |
-| `vision_speed` | `/mavros/vision_speed/speed_twist` (subscriber) | **Core input:** receives velocity from bridge, forwards to FCU via `VISION_SPEED_ESTIMATE` |
+| `vision_pose` | `/mavros/mavros/pose` (subscriber — see `sky_vision2`'s `bridge_node.md` for why not `/mavros/vision_pose/pose`) | **Core input:** receives position from bridge, forwards to FCU via `VISION_POSITION_ESTIMATE` |
 
 ### What happens when a plugin is missing
 
@@ -152,8 +152,7 @@ Missing the wrong plugin causes silent, hard-to-diagnose failures:
 | Missing plugin | Symptom |
 |---|---|
 | `vision_pose` | Bridge publishes but FCU never receives position. EKF uses only IMU + baro. Drone drifts immediately in GUIDED. |
-| `vision_speed` | FCU receives position but not velocity. EKF velocity accuracy degrades; position estimate may lag or oscillate. |
-| `command` | `arm()`, `set_home()`, `takeoff()` service calls return "service not available". Bridge EKF watchdog never completes. |
+| `command` | `arm()`, `takeoff()` service calls return "service not available". |
 | `sys_status` | `/mavros/state` has no publisher. Code that waits for `state.connected == True` hangs forever. |
 | `sys_time` | ZED odometry timestamps drift relative to FCU timestamps. EKF may reject measurements as "too old" or "from the future". |
 | `global_position` | `set_home` with `current_gps=True` may report success but use an invalid position. |

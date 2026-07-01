@@ -4,7 +4,7 @@
 **Executable:** `zed_mavros_bridge` (registered in `setup.py`)  
 **Launched by:** `mavros_fc.launch.py`, `zed_mavros_fc.launch.py`
 
-Subscribes to ZED odometry, converts the frame convention to NED, and republishes both position and velocity on the MAVROS external vision inputs so ArduPilot's EKF3 can fuse them.
+Subscribes to ZED odometry, converts the frame convention to NED, and republishes position (only) on the MAVROS external vision input so ArduPilot's EKF3 can fuse it. Does **not** publish vision_speed — see "No vision_speed" below.
 
 ## Topics
 
@@ -12,7 +12,6 @@ Subscribes to ZED odometry, converts the frame convention to NED, and republishe
 |---|---|---|---|
 | Subscribes | `/zed/zed_node/odom` (configurable) | `nav_msgs/Odometry` | BEST_EFFORT QoS — must match ZED driver |
 | Publishes | `/mavros/mavros/pose` (configurable, default) | `geometry_msgs/PoseStamped` | Position for EKF3 ExternalNav |
-| Publishes | `/mavros/mavros/speed_twist` (configurable, default) | `geometry_msgs/TwistStamped` | Velocity for EKF3 ExternalNav |
 
 **Note:** the default topic is `/mavros/mavros/pose`, not `/mavros/vision_pose/pose` as generic MAVROS docs show — the `vision_pose` plugin subscribes to a relative `~/pose` topic, and this launch runs `mavros_node` with `name='mavros'` (no separate namespace), so its effective namespace is `/mavros/mavros`.
 
@@ -22,12 +21,17 @@ Subscribes to ZED odometry, converts the frame convention to NED, and republishe
 |---|---|---|
 | `zed_odom_topic` | `/zed/zed_node/odom` | ZED odometry input |
 | `mavros_vision_pose_topic` | `/mavros/mavros/pose` | MAVROS position output |
-| `mavros_vision_speed_topic` | `/mavros/mavros/speed_twist` | MAVROS velocity output |
 | `yaw_offset_rad` | `0.0` (source) / `-1.5708` (launch file) | Zeroes ZED's initial heading — pure-Z quaternion rotation applied after the axis remap below |
+
+## No vision_speed (2026-07-01)
+
+`zed_camera_component_main.cpp`'s `publishOdom()` in the ZED ROS2 wrapper only fills `pose` — `twist` is never touched, so `msg.twist.twist.linear` is always exactly `(0,0,0)` regardless of real motion. Forwarding that as `VISION_SPEED_ESTIMATE` would tell the EKF "velocity = 0" with confidence even while actually moving — worse than not sending velocity at all. The bridge no longer has a speed publisher, `vision_speed` was removed from `config/apm_pluginlists_vision.yaml`'s allowlist, and `EK3_SRC1_VELXY` must be `0` (None) on the FC, not `6` — see the parameters table below.
+
+If accurate vision velocity is ever needed, it would have to be derived in the bridge by finite-differencing consecutive `pose.position` samples (ZED position tracking is accurate; only `twist` is unpopulated).
 
 ## QoS — BEST_EFFORT required
 
-ZED publishes odom with `BEST_EFFORT`. The bridge subscription must match or DDS silently drops all messages (no error is printed). The pose/speed publishers use default `RELIABLE` which is compatible with MAVROS's subscription.
+ZED publishes odom with `BEST_EFFORT`. The bridge subscription must match or DDS silently drops all messages (no error is printed). The pose publisher uses default `RELIABLE` which is compatible with MAVROS's subscription.
 
 ## Coordinate frame correction (verified against running code, 2026-07-01)
 
@@ -44,7 +48,7 @@ orientation: qx,qy,qz,qw passed through unchanged, then rotated by yaw_offset_ra
 
 **MAVROS with ArduPilot does NOT auto-convert ENU→NED.** The bridge must publish NED directly.
 
-**Known inconsistency, not yet fixed in code:** `zed_mavros_bridge.py`'s own module docstring and startup log line describe a different transform ("negate Y; flip qy,qz" for a camera mounted "X=North, Y=West, Z=Down"). That text does not match what `_odom_cb` actually executes (shown above). Trust `_odom_cb`, not the docstring/log — this has been confirmed correct in a live hardware run (EKF3 yaw-aligned, using external nav data, position held near zero while stationary).
+Confirmed correct in a live hardware run (EKF3 yaw-aligned, using external nav data, position held near zero while stationary). The module docstring/startup log were previously out of sync with this transform (described "negate Y; flip qy,qz" instead) — fixed 2026-07-01 alongside the vision_speed removal, so docstring/log and `_odom_cb` now agree.
 
 ### Verification
 
@@ -71,7 +75,7 @@ If you need to set home manually: use QGroundControl or Mission Planner "Set Hom
 | Parameter | Value | Meaning |
 |---|---|---|
 | `EK3_SRC1_POSXY` | `6` | ExternalNav horizontal position |
-| `EK3_SRC1_VELXY` | `6` | ExternalNav horizontal velocity |
+| `EK3_SRC1_VELXY` | `0` | None — no vision_speed is published |
 | `EK3_SRC1_POSZ` | `1` | Barometer vertical (ZED Z drifts) |
 | `EK3_SRC1_VELZ` | `0` | None |
 | `EK3_SRC1_YAW` | `6` | ExternalNav yaw |

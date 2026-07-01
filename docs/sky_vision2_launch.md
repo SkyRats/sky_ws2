@@ -169,14 +169,13 @@ ros2 topic hz /zed/zed_node/odom
 # → average rate: ~30 Hz
 
 # 3. Bridge is publishing to MAVROS:
-ros2 topic hz /mavros/vision_pose/pose
-# → average rate: ~30 Hz
-ros2 topic hz /mavros/vision_speed/speed_twist
-# → average rate: ~30 Hz
+ros2 topic hz /mavros/mavros/pose
+# → average rate: ~30 Hz (no vision_speed — bridge doesn't publish it; topic name
+#   is /mavros/mavros/pose, not /mavros/vision_pose/pose — see bridge_node.md)
 
-# 4. EKF receiving vision data (check ArduPilot logs or Mission Planner):
-ros2 topic echo /mavros/estimator_status --once
-# → pos_horiz_rel: True  (after ~5 s of bridge running)
+# 4. EKF receiving vision data — /mavros/estimator_status often never publishes
+# (SR2_EXTRA3 defaults to 0 Hz on Telem2). Check ArduPilot/Mission Planner logs
+# for "EKF3 IMU0 is using external nav data" instead.
 ```
 
 ### Common failures
@@ -329,9 +328,10 @@ t=0 s    MAVROS starts — waiting for FCU heartbeat on ttyTHS1
 t=0 s    Bridge starts — waiting for /zed/zed_node/odom messages
 t=2-5 s  MAVROS receives first FCU heartbeat → /mavros/state connected: True
 t=10-15 s ZED SDK ready → /zed/zed_node/odom starts at ~30 Hz
-t=10-15 s Bridge receives first odom → starts publishing vision_pose + vision_speed
-t=10-15 s EKF begins fusing vision data → pos_horiz_rel may become True
-t=15-20 s EKF stable for 5 s → bridge calls set_home → ready to arm
+t=10-15 s Bridge receives first odom → starts publishing vision_pose (no vision_speed)
+t=10-15 s EKF begins fusing vision data → "EKF3 IMU0 is using external nav data" in FCU log
+t=15-20 s  No explicit set_home call — ArduPilot sets EKF origin automatically once
+           vision data arrives; keep the drone stationary ~20 s for a clean converge
 ```
 
 ### Startup verification

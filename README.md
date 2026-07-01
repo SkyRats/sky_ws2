@@ -125,7 +125,7 @@ Set these once on the Pixhawk before any flight that uses the ZED camera:
 | Parameter | Value | Why |
 |-----------|-------|-----|
 | `EK3_SRC1_POSXY` | 6 | Use visual odometry for horizontal position |
-| `EK3_SRC1_VELXY` | 6 | Use visual odometry for horizontal velocity |
+| `EK3_SRC1_VELXY` | 0 | None — bridge doesn't publish vision_speed (ZED wrapper never populates twist) |
 | `EK3_SRC1_POSZ` | 1 | Use barometer for altitude |
 | `EK3_SRC1_VELZ` | 0 | No vertical velocity source |
 | `EK3_SRC1_YAW` | 6 | Use visual odometry for heading |
@@ -142,8 +142,7 @@ bash ~/sky_ws2/src/indoor_2026/fc_scripts/set_ekf3_vision_params.sh
 export ROS_DOMAIN_ID=42
 ros2 topic echo /mavros/state --once           # look for: connected: True
 ros2 topic hz /zed/zed_node/odom              # should be ~30 Hz
-ros2 topic hz /mavros/vision_pose/pose        # should be ~30 Hz
-ros2 topic hz /mavros/vision_speed/speed_twist # should be ~30 Hz
+ros2 topic hz /mavros/mavros/pose             # should be ~30 Hz (no vision_speed — bridge doesn't publish it)
 ```
 
 ## Submodule workflow

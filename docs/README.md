@@ -65,7 +65,7 @@ source install/setup.bash
 ros2 launch sky_vision2 zed_mavros_fc.launch.py
 
 # 3. Verify data is flowing
-ros2 topic hz /mavros/vision_pose/pose
+ros2 topic hz /mavros/mavros/pose
 ros2 topic echo /mavros/state
 ```
 
@@ -100,22 +100,21 @@ ZED2i camera
     │  /zed/zed_node/odom (Odometry, ~30 Hz, BEST_EFFORT QoS)
     ▼
 ZedMavrosBridge (sky_vision2)
-    ├─ negates position.y and twist.linear.y (ZED Y=West → NED Y=East)
-    ├─ negates quaternion qy and qz (pitch/yaw sign flip)
-    ├─ publishes /mavros/vision_pose/pose    (PoseStamped)
-    ├─ publishes /mavros/vision_speed/speed_twist (TwistStamped)
+    ├─ position: x_ned=-y_zed, y_ned=x_zed, z_ned=z_zed (swap+negate X/Y)
+    ├─ orientation: passthrough + yaw_offset_rad rotation
+    ├─ publishes /mavros/mavros/pose (PoseStamped) — not /mavros/vision_pose/pose,
+    │   see sky_vision2's bridge_node.md for why
     │
-    │  also subscribes to /mavros/estimator_status
-    │  → waits 5 s of EKF pos_horiz_rel=True
-    │  → calls /mavros/cmd/set_home once
+    │  (no vision_speed — ZED wrapper never populates twist;
+    │   no explicit set_home — ArduPilot sets EKF origin automatically
+    │   once vision data starts arriving)
     │
     ▼
 MAVROS
-    ├─ VISION_POSITION_ESTIMATE → ArduPilot EKF3 (XY position source)
-    └─ VISION_SPEED_ESTIMATE    → ArduPilot EKF3 (XY velocity source)
+    └─ VISION_POSITION_ESTIMATE → ArduPilot EKF3 (XY position source)
     │
     ▼
-ArduPilot EKF3 (EK3_SRC1_POSXY=6, EK3_SRC1_VELXY=6)
+ArduPilot EKF3 (EK3_SRC1_POSXY=6, EK3_SRC1_VELXY=0)
     └─ fused local position estimate
     │
     ▼
@@ -135,7 +134,7 @@ Two bridge implementations exist. Only one should be running at a time:
 
 | Stack | Bridge node | Input | Frame correction (→ NED) | Velocity to EKF | Auto home |
 |-------|-------------|-------|--------------------------|-----------------|-----------|
-| `sky_vision2` | `ZedMavrosBridge` | `/zed/zed_node/odom` (Odometry) | negate Y, negate qy/qz | Yes | Yes |
+| `sky_vision2` | `ZedMavrosBridge` | `/zed/zed_node/odom` (Odometry) | swap+negate X/Y position, quaternion passthrough + yaw_offset_rad | No — ZED wrapper never populates twist | No — ArduPilot sets EKF origin automatically |
 | `indoor_2026` | `pose_relay` | `/mavros/zed/pose` (PoseStamped) | negate X and Y, rotate quat 180° Z (needs review) | No | No |
 
 `sky_vision2` is the current production stack. `indoor_2026/pose_relay` is kept for reference.
@@ -147,7 +146,7 @@ These must be set on the FCU before flying with visual odometry:
 | Parameter | Value | Purpose |
 |-----------|-------|---------|
 | `EK3_SRC1_POSXY` | `6` | Horizontal position: ExternalNav (vision) |
-| `EK3_SRC1_VELXY` | `6` | Horizontal velocity: ExternalNav (vision) |
+| `EK3_SRC1_VELXY` | `0` | None — bridge doesn't publish vision_speed (ZED wrapper never populates twist) |
 | `EK3_SRC1_POSZ`  | `1` | Vertical position: Barometer |
 | `EK3_SRC1_VELZ`  | `0` | Vertical velocity: None |
 | `EK3_SRC1_YAW`   | `6` | Yaw: ExternalNav (vision) |
