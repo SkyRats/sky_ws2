@@ -1,0 +1,18 @@
+[Unit]
+Description=SkyRats ZED + MAVROS vision bridge (sky_vision2)
+After=network.target multi-user.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=skyrats
+Group=skyrats
+Environment=HOME=/home/skyrats
+Environment=ROS_DOMAIN_ID=42
+ExecStart=/home/skyrats/sky_ws2/scripts/start_vision_stack.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

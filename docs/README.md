@@ -17,6 +17,7 @@ sky_ws2/
 │   ├── ardupilot/            # ArduPilot firmware source (submodule)
 │   └── zed-ros2-wrapper/     # ZED SDK ROS2 driver (submodule)
 ├── media/imagens/            # Captured test images and legacy indoor_2025 scripts
+├── scripts/                  # skyrats-vision.service + start_vision_stack.sh — boot autostart
 └── docs/                     # ← you are here
 ```
 
@@ -30,6 +31,7 @@ sky_ws2/
 | [test_zed_odom.md](test_zed_odom.md) | `ZedOdomPublisher` + `BridgeVerifier` — offline bridge testing with synthetic odometry | `src/sky_vision2/sky_vision2/test_zed_odom.py` |
 | [sky_vision2_launch.md](sky_vision2_launch.md) | Four launch file variants: ZED only, MAVROS+bridge only, full stack FC, full stack SITL | `src/sky_vision2/launch/` |
 | [sky_vision2_config.md](sky_vision2_config.md) | `fastdds_no_shm.xml` — DDS SHM fix; `apm_pluginlists_vision.yaml` — MAVROS plugin allowlist | `src/sky_vision2/config/` |
+| [systemd_autostart.md](systemd_autostart.md) | `skyrats-vision.service` — boot autostart of ZED+MAVROS+bridge, verifying it survives a real reboot, rviz2 live-pose visualization | `scripts/` |
 
 ### indoor_2026 — mission package and legacy bridge
 
