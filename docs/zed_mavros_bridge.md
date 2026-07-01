@@ -2,225 +2,96 @@
 
 **Source:** `src/sky_vision2/sky_vision2/zed_mavros_bridge.py`  
 **Executable:** `zed_mavros_bridge` (registered in `setup.py`)  
-**Launched by:** `mavros_fc.launch.py`, `zed_mavros_fc.launch.py`, `zed_mavros_sitl.launch.py`
+**Launched by:** `mavros_fc.launch.py`, `zed_mavros_fc.launch.py`
 
-Subscribes to the ZED camera's odometry topic, converts the frame convention, and republishes both position and velocity on the MAVROS external vision inputs so ArduPilot's EKF3 can fuse them. Also monitors EKF health and automatically sets the home position once the estimate is stable.
+Subscribes to ZED odometry, converts the frame convention to NED, and republishes both position and velocity on the MAVROS external vision inputs so ArduPilot's EKF3 can fuse them.
 
-## Why this node exists
+## Topics
 
-MAVROS exposes two external-vision input topics:
-
-| MAVROS topic | MAVLink message | EKF3 role |
-|---|---|---|
-| `/mavros/vision_pose/pose` | `VISION_POSITION_ESTIMATE` | Absolute position correction |
-| `/mavros/vision_speed/speed_twist` | `VISION_SPEED_ESTIMATE` | Velocity correction |
-
-The ZED ROS2 wrapper publishes both position and velocity together in a single `nav_msgs/Odometry` message on `/zed/zed_node/odom`, but nothing in the stack automatically routes that to the two MAVROS inputs. Without this bridge:
-
-- `/mavros/vision_pose/pose` has zero publishers → ArduPilot has no external position.
-- `/mavros/vision_speed/speed_twist` has zero publishers → the EKF must dead-reckon velocity from IMU only, degrading position accuracy.
-
-Additionally, the ArduPilot EKF needs a **home position** to be set before GUIDED mode position hold works correctly. This bridge detects when the EKF has a valid estimate and calls `set_home` automatically, removing a manual step that was easy to forget.
-
-## Comparison with pose_relay
-
-Both `ZedMavrosBridge` and [`pose_relay`](pose_relay.md) solve the same top-level problem (get ZED data into MAVROS), but they are distinct implementations targeting different stages of the project:
-
-| Aspect | `pose_relay` (indoor_2026) | `ZedMavrosBridge` (sky_vision2) |
-|---|---|---|
-| Package | `indoor_2026` | `sky_vision2` |
-| Input topic | `/mavros/zed/pose` (`PoseStamped`) | `/zed/zed_node/odom` (`Odometry`) |
-| Input data | Position only | Position **and** velocity |
-| Publishes velocity | No | Yes (`/mavros/vision_speed/speed_twist`) |
-| Frame correction | negate Y, negate qy/qz (to NED) | negate Y, negate qy/qz (to NED) |
-| Sets home | No | Yes (EKF health watchdog) |
-| Production role | Earlier simpler version | Current production node |
-
-Both bridges apply the same 180° Z rotation: the ZED odom frame and ZED pose frame both have X and Y inverted relative to MAVROS ENU in our mounting configuration (X=West, Y=South).
-
-**Running both nodes simultaneously will produce duplicate messages on `/mavros/vision_pose/pose`**, which confuses the EKF. Only one should be active at a time. On the sky_vision2 stack, `pose_relay` is not launched.
-
-## Topics and services
-
-| Direction | Topic / Service | Type | Description |
+| Direction | Topic | Type | Notes |
 |---|---|---|---|
-| Subscribes | `/zed/zed_node/odom` (configurable) | `nav_msgs/Odometry` | ZED visual odometry at ~30 Hz |
-| Subscribes | `/mavros/estimator_status` | `mavros_msgs/EstimatorStatus` | EKF health flags |
-| Publishes | `/mavros/vision_pose/pose` (configurable) | `geometry_msgs/PoseStamped` | Position for EKF external vision |
-| Publishes | `/mavros/vision_speed/speed_twist` (configurable) | `geometry_msgs/TwistStamped` | Velocity for EKF external vision |
-| Calls | `/mavros/cmd/set_home` | `mavros_msgs/CommandHome` | Sets ArduPilot home position |
+| Subscribes | `/zed/zed_node/odom` (configurable) | `nav_msgs/Odometry` | BEST_EFFORT QoS — must match ZED driver |
+| Publishes | `/mavros/mavros/pose` (configurable, default) | `geometry_msgs/PoseStamped` | Position for EKF3 ExternalNav |
+| Publishes | `/mavros/mavros/speed_twist` (configurable, default) | `geometry_msgs/TwistStamped` | Velocity for EKF3 ExternalNav |
 
-## ROS2 parameters
+**Note:** the default topic is `/mavros/mavros/pose`, not `/mavros/vision_pose/pose` as generic MAVROS docs show — the `vision_pose` plugin subscribes to a relative `~/pose` topic, and this launch runs `mavros_node` with `name='mavros'` (no separate namespace), so its effective namespace is `/mavros/mavros`.
+
+## Parameters
 
 | Parameter | Default | Description |
 |---|---|---|
-| `zed_odom_topic` | `/zed/zed_node/odom` | ZED odometry input topic |
-| `mavros_vision_pose_topic` | `/mavros/vision_pose/pose` | MAVROS position output topic |
-| `mavros_vision_speed_topic` | `/mavros/vision_speed/speed_twist` | MAVROS velocity output topic |
+| `zed_odom_topic` | `/zed/zed_node/odom` | ZED odometry input |
+| `mavros_vision_pose_topic` | `/mavros/mavros/pose` | MAVROS position output |
+| `mavros_vision_speed_topic` | `/mavros/mavros/speed_twist` | MAVROS velocity output |
+| `yaw_offset_rad` | `0.0` (source) / `-1.5708` (launch file) | Zeroes ZED's initial heading — pure-Z quaternion rotation applied after the axis remap below |
 
-Override at launch time with `--ros-args -p zed_odom_topic:=/my/custom/odom` or via the launch file arguments.
+## QoS — BEST_EFFORT required
 
-## QoS profile — why BEST_EFFORT
+ZED publishes odom with `BEST_EFFORT`. The bridge subscription must match or DDS silently drops all messages (no error is printed). The pose/speed publishers use default `RELIABLE` which is compatible with MAVROS's subscription.
 
-The ZED wrapper publishes the odometry topic with `BEST_EFFORT` reliability. DDS requires that a subscription's QoS is **compatible** with the publisher's QoS before it will match them and deliver messages. The compatibility rule for reliability is:
+## Coordinate frame correction (verified against running code, 2026-07-01)
 
-```
-subscriber RELIABLE + publisher BEST_EFFORT  →  INCOMPATIBLE (no connection)
-subscriber BEST_EFFORT + publisher BEST_EFFORT  →  compatible (messages flow)
-```
-
-If the bridge used the default `RELIABLE` QoS, the DDS middleware would silently refuse to connect the subscription to the ZED publisher. No error is printed; the subscriber simply receives nothing. This is one of the most common silent failures when integrating third-party ROS2 sensor drivers.
-
-The bridge uses:
-
-```python
-sensor_qos = QoSProfile(
-    reliability=QoSReliabilityPolicy.BEST_EFFORT,
-    history=QoSHistoryPolicy.KEEP_LAST,
-    durability=QoSDurabilityPolicy.VOLATILE,
-    depth=10,
-)
-```
-
-This profile matches the ZED driver's sensor QoS exactly.
-
-## MAVROS frame convention — NED required for ArduPilot
-
-MAVROS `vision_pose` plugin with ArduPilot does **not** perform ENU→NED frame conversion. It forwards the incoming `PoseStamped` directly as `VISION_POSITION_ESTIMATE`, which ArduPilot EKF3 expects in **NED** (X=North, Y=East, Z=Down).
-
-The bridge publishes NED directly. Do not publish ENU expecting MAVROS to convert.
-
-## Coordinate frame correction — Y-axis negation
-
-ZED odom frame (hardware-verified): **X=North, Y=West, Z=Down**.
-
-Only Y needs to be negated to match NED. X and Z are already NED-aligned:
+`_odom_cb` does its own axis remap — it does not rely on MAVROS auto-converting ENU→NED:
 
 ```
-ZED odom → NED (published to MAVROS)
+position.x  →  -position.y    (North = -Y_zed)
+position.y  →   position.x    (East  =  X_zed)
+position.z  →   position.z    (unchanged)
 
-position.x  →   position.x    (North, unchanged)
-position.y  →  -position.y    (West → East)
-position.z  →   position.z    (Down, unchanged)
-
-twist.linear.x  →   twist.linear.x
-twist.linear.y  →  -twist.linear.y
-twist.linear.z  →   twist.linear.z
+orientation: qx,qy,qz,qw passed through unchanged, then rotated by yaw_offset_rad
+             (q_out = q_corr * q_in, q_corr = pure Z rotation of yaw_offset_rad)
 ```
 
-The quaternion components for the axes that flip (Y and Z) are negated. Flipping the Y axis reverses the positive rotation direction for pitch (rotation around Y) and yaw (rotation around Z, since handedness changes):
+**MAVROS with ArduPilot does NOT auto-convert ENU→NED.** The bridge must publish NED directly.
 
-```
-orientation.x  →   qx    (roll around North, unchanged)
-orientation.y  →  -qy    (pitch sign reverses with Y axis)
-orientation.z  →  -qz    (yaw sign reverses with Y axis flip)
-orientation.w  →   qw
-```
-
-The correction is applied in `_odom_cb`:
-
-```python
-qx = msg.pose.pose.orientation.x
-qy = msg.pose.pose.orientation.y
-qz = msg.pose.pose.orientation.z
-qw = msg.pose.pose.orientation.w
-
-pose_msg.pose.position.x =  msg.pose.pose.position.x
-pose_msg.pose.position.y = -msg.pose.pose.position.y
-pose_msg.pose.position.z =  msg.pose.pose.position.z
-pose_msg.pose.orientation.x =  qx
-pose_msg.pose.orientation.y = -qy
-pose_msg.pose.orientation.z = -qz
-pose_msg.pose.orientation.w =  qw
-
-speed_msg.twist.linear.x =  msg.twist.twist.linear.x
-speed_msg.twist.linear.y = -msg.twist.twist.linear.y
-speed_msg.twist.linear.z =  msg.twist.twist.linear.z
-```
+**Known inconsistency, not yet fixed in code:** `zed_mavros_bridge.py`'s own module docstring and startup log line describe a different transform ("negate Y; flip qy,qz" for a camera mounted "X=North, Y=West, Z=Down"). That text does not match what `_odom_cb` actually executes (shown above). Trust `_odom_cb`, not the docstring/log — this has been confirmed correct in a live hardware run (EKF3 yaw-aligned, using external nav data, position held near zero while stationary).
 
 ### Verification
 
-After launch, echo `/mavros/vision_pose/pose` and physically move the drone:
+Move the drone physically after launch and echo `/mavros/mavros/pose`:
 
-| Movement | `position` field | Expected sign |
+| Movement | Field | Expected |
 |---|---|---|
-| Move North | `.x` | Increases |
-| Move East | `.y` | Increases |
-| Move Up | `.z` | Decreases (Z=Down) |
+| Move North | `position.x` | Increases |
+| Move East | `position.y` | Increases |
+| Move Up | `position.z` | Decreases |
 
-## EKF health watchdog and auto-set home
+## set_home — NOT needed
 
-### Why set_home is needed
+ArduPilot sets the EKF origin automatically when it begins accepting vision data. Do not call `/mavros/cmd/set_home` from the bridge — the service is unreliable at startup (MAVROS command plugin isn't ready) and ArduPilot doesn't require it for ExternalNav operation.
 
-ArduPilot's EKF3 computes position in a local frame relative to a **home position** origin. Without a home position, GUIDED mode position hold does not work: the EKF has no reference point to compare the vision estimate against. `set_home` instructs ArduPilot to record the current location as the origin. With `current_gps=True`, it uses whatever position the EKF currently reports as home — this works even without GPS when the EKF is being fed by external vision.
+If you need to set home manually: use QGroundControl or Mission Planner "Set Home Here" button after the EKF converges.
 
-In manual pre-bridge workflows, operators had to call `set_home` via GCS before arming. Forgetting it caused position hold to drift or refuse to engage. The bridge automates this.
+## estimator_status — may not publish
 
-### Why wait for EKF stability
-
-Calling `set_home` too early — before the EKF has converged — would set an inaccurate origin, causing all subsequent position commands to be offset. The bridge waits for `pos_horiz_rel` (horizontal position relative to home is valid) to be `True` for `STABLE_SECS = 5.0` continuous seconds before sending the request.
-
-The 5-second window is long enough to filter out transient EKF convergence spikes that can appear during the first few seconds of visual odometry. If the EKF health flag drops at any point during the countdown, the timer resets to zero (conservative safety design: any wobble restarts the wait).
-
-### State machine
-
-```
-         EKF reports pos_horiz_rel=True
-                      │
-                      ▼
-            [_healthy_since = now]
-                      │
-             elapsed < 5.0 s?
-            /                  \
-          Yes                   No (5 s elapsed)
-           │                        │
-  keep waiting             [_send_set_home()]
-  (EKF still healthy)              │
-           │               service available?
-  pos_horiz_rel drops?      /              \
-           │              No               Yes
-           ▼               │                │
-  [_healthy_since = None]  reset timer   call set_home
-  (restart countdown)                       │
-                                     success?
-                                    /        \
-                                  No          Yes
-                                   │            │
-                              reset timer  [_home_set = True]
-                              (retry)      (watchdog exits)
-```
-
-Once `_home_set` is `True`, the EKF callback returns immediately and the watchdog is permanently disabled. This prevents re-issuing `set_home` during flight if the EKF temporarily reports unhealthy.
-
-### EstimatorStatus.pos_horiz_rel
-
-`pos_horiz_rel` is one of ArduPilot's EKF status bitfield flags, exposed by MAVROS on the `EstimatorStatus` message. It means "the EKF has a valid horizontal position estimate relative to the home position." It is distinct from `pos_horiz_abs` (which requires GPS). For indoor vision-only flight, only `pos_horiz_rel` will ever be True.
+`/mavros/estimator_status` depends on ArduPilot sending `EKF_STATUS_REPORT` (MAVLink stream `EXTRA3`). This stream is often rate=0 by default on Telem2. If the topic never appears, check `SR2_EXTRA3` on the Pixhawk (set to ≥1 Hz via GCS). The bridge does not depend on this topic.
 
 ## Required ArduPilot parameters
 
-These parameters must be set on the flight controller before the bridge can function. Incorrect values are the most common cause of the EKF ignoring the vision input entirely.
-
 | Parameter | Value | Meaning |
 |---|---|---|
-| `EK3_SRC1_POSXY` | `6` | Horizontal position source: ExternalNav (vision) |
-| `EK3_SRC1_VELXY` | `6` | Horizontal velocity source: ExternalNav (vision) |
-| `EK3_SRC1_POSZ` | `1` | Vertical position source: Barometer |
-| `EK3_SRC1_VELZ` | `0` | Vertical velocity source: None |
-| `EK3_SRC1_YAW` | `6` | Yaw source: ExternalNav (vision) |
-| `VISO_TYPE` | `1` | Enable visual odometry processing in ArduPilot |
+| `EK3_SRC1_POSXY` | `6` | ExternalNav horizontal position |
+| `EK3_SRC1_VELXY` | `6` | ExternalNav horizontal velocity |
+| `EK3_SRC1_POSZ` | `1` | Barometer vertical (ZED Z drifts) |
+| `EK3_SRC1_VELZ` | `0` | None |
+| `EK3_SRC1_YAW` | `6` | ExternalNav yaw |
+| `VISO_TYPE` | `1` | Enable vision processing in ArduPilot |
 
-`EK3_SRC1_POSZ = 1` (Baro) rather than ExternalNav because the ZED odometry Z estimate can drift over time, while the barometer provides a stable absolute altitude reference for indoor environments. Using baro for Z and vision for XY is the standard indoor ArduPilot configuration.
+Without `VISO_TYPE=1`, ArduPilot silently discards all vision messages even though MAVROS is sending them.
 
-`VISO_TYPE = 1` tells ArduPilot to process incoming `VISION_POSITION_ESTIMATE` and `VISION_SPEED_ESTIMATE` MAVLink messages. Without this, MAVROS publishes the messages but ArduPilot silently discards them.
+## Build note
 
-## Diagnostic logging
+`colcon build --packages-select sky_vision2` fails with `error: option --uninstall not recognized` (setuptools compatibility issue). Instead, copy the Python module directly:
 
-Every 100 messages (`_msg_count % 100 == 0`), the bridge logs the current position and quaternion at INFO level. At 30 Hz, this gives a log line roughly every 3.3 seconds — enough to confirm data flow without flooding the terminal.
+```bash
+cp src/sky_vision2/sky_vision2/zed_mavros_bridge.py \
+   install/sky_vision2/lib/sky_vision2/zed_mavros_bridge.py
+```
+
+The package uses an editable install — `src/sky_vision2/sky_vision2/zed_mavros_bridge.py` is what actually runs.
 
 ## See also
 
-- [pose_relay](pose_relay.md) — earlier simpler bridge (indoor_2026 package, no velocity, no auto-home)
-- [sky_vision2 launch files](sky_vision2_launch.md) — how to start this node alongside MAVROS and ZED
-- [test_zed_odom](test_zed_odom.md) — synthetic odometry tool for testing this bridge without hardware
-- [sky_vision2 config](sky_vision2_config.md) — FastDDS and plugin allowlist that this bridge depends on
-- [communication](communication.md) — `Mav` node that consumes the MAVROS output this bridge feeds
+- [launch.md](launch.md) — how to start the full stack
+- [sky_vision2_config.md](sky_vision2_config.md) — FastDDS and plugin allowlist
+- [test_zed_odom.md](test_zed_odom.md) — synthetic odom for testing without hardware
