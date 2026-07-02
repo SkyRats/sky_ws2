@@ -130,8 +130,7 @@ Vision topic:  x=-2.0 * cos(t)    y=+2.0 * sin(t)
 
 | Gap | How to cover it |
 |---|---|
-| EKF health watchdog (`_ekf_cb`) | Requires a running MAVROS publishing `/mavros/estimator_status` |
-| `set_home` service call | Requires MAVROS connected to a flight controller (or SITL) |
+| `ekf_home_watchdog`'s `set_home` gating and service call | Not exercised by this tool directly — run `ekf_home_watchdog` alongside this tool against SITL (`ros2 launch sky_vision2 mavros_fc.launch.py fcu_url:=tcp://127.0.0.1:5760`) and watch its log / `ros2 topic echo /mavros/home_position/home` |
 | Actual QoS match with ZED driver | Requires the real ZED driver or a publisher with BEST_EFFORT QoS |
 | Bridge restart after MAVROS restart | Manual test — restart both nodes, verify topic resumes |
 

@@ -27,7 +27,7 @@ sky_ws2/
 
 | Doc | What it covers | Source path |
 |-----|---------------|-------------|
-| [zed_mavros_bridge.md](zed_mavros_bridge.md) | `ZedMavrosBridge` — ZED odom → MAVROS pose+velocity, EKF health watchdog, auto set_home | `src/sky_vision2/sky_vision2/zed_mavros_bridge.py` |
+| [zed_mavros_bridge.md](zed_mavros_bridge.md) | `ZedMavrosBridge` — ZED odom → MAVROS pose (`ekf_home_watchdog`, a separate node, handles set_home) | `src/sky_vision2/sky_vision2/zed_mavros_bridge.py` |
 | [test_zed_odom.md](test_zed_odom.md) | `ZedOdomPublisher` + `BridgeVerifier` — offline bridge testing with synthetic odometry | `src/sky_vision2/sky_vision2/test_zed_odom.py` |
 | [sky_vision2_launch.md](sky_vision2_launch.md) | Four launch file variants: ZED only, MAVROS+bridge only, full stack FC, full stack SITL | `src/sky_vision2/launch/` |
 | [sky_vision2_config.md](sky_vision2_config.md) | `fastdds_no_shm.xml` — DDS SHM fix; `apm_pluginlists_vision.yaml` — MAVROS plugin allowlist | `src/sky_vision2/config/` |
@@ -107,9 +107,13 @@ ZedMavrosBridge (sky_vision2)
     ├─ publishes /mavros/mavros/pose (PoseStamped) — not /mavros/vision_pose/pose,
     │   see sky_vision2's bridge_node.md for why
     │
-    │  (no vision_speed — ZED wrapper never populates twist;
-    │   no explicit set_home — ArduPilot sets EKF origin automatically
-    │   once vision data starts arriving)
+    │  (no vision_speed — ZED wrapper never populates twist)
+    │
+ekf_home_watchdog (sky_vision2, separate node — FALLBACK, unverified)
+    └─ waits for vision to move + stabilize, then calls
+       /mavros/mavros/set_home (current_gps=True) once
+       (primary mechanism is indoor_2026/fc_scripts/ekf_set_home.lua,
+       run on the FC itself — needs an SD card, not currently installed)
     │
     ▼
 MAVROS
@@ -134,9 +138,9 @@ ArduPilot flight controller ───────┘
 
 Two bridge implementations exist. Only one should be running at a time:
 
-| Stack | Bridge node | Input | Frame correction (→ NED) | Velocity to EKF | Auto home |
+| Stack | Bridge node | Input | Frame correction (→ NED) | Velocity to EKF | set_home |
 |-------|-------------|-------|--------------------------|-----------------|-----------|
-| `sky_vision2` | `ZedMavrosBridge` | `/zed/zed_node/odom` (Odometry) | swap+negate X/Y position, quaternion passthrough + yaw_offset_rad | No — ZED wrapper never populates twist | No — ArduPilot sets EKF origin automatically |
+| `sky_vision2` | `ZedMavrosBridge` | `/zed/zed_node/odom` (Odometry) | swap+negate X/Y position, quaternion passthrough + yaw_offset_rad | No — ZED wrapper never populates twist | Yes — `ekf_home_watchdog` (separate node, package `sky_vision2`) |
 | `indoor_2026` | `pose_relay` | `/mavros/zed/pose` (PoseStamped) | negate X and Y, rotate quat 180° Z (needs review) | No | No |
 
 `sky_vision2` is the current production stack. `indoor_2026/pose_relay` is kept for reference.

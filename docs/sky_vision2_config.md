@@ -138,9 +138,9 @@ On the Jetson Orin NX, the difference in startup time between full plugins and t
 |---|---|---|
 | `sys_status` | `/mavros/state`, `/mavros/battery_state` | Heartbeat monitoring; without this, no feedback that MAVROS is connected to FCU |
 | `sys_time` | Clock sync (internal) | Synchronizes the ROS2 clock with the FCU clock; critical for timestamp alignment between ZED odom and IMU |
-| `command` | `/mavros/cmd/arming`, `/mavros/cmd/takeoff` | Arm, disarm, takeoff services. (The bridge itself doesn't call `set_home` — ArduPilot sets the EKF origin automatically once vision data arrives.) |
-| `local_position` | `/mavros/local_position/pose` | EKF output position; used by `Mav` in simulation/indoor mode and for mission feedback |
-| `global_position` | `/mavros/global_position/global` | GPS global position; required for `set_home` with `current_gps=True` to resolve correctly |
+| `command` | `/mavros/cmd/arming`, `/mavros/cmd/takeoff`, `/mavros/mavros/set_home` | Arm, disarm, takeoff services, and `set_home` — called by `ekf_home_watchdog` (package `sky_vision2`, not the bridge itself) once vision is stable. See `.claude/rules/ekf_home_watchdog.md`. |
+| `local_position` | `/mavros/mavros/pose`, `/mavros/mavros/odom`, etc. (not `/mavros/local_position/pose` — same namespace collapse as `vision_pose`, see `bridge_node.md`) | Intended as EKF output position for `ekf_home_watchdog`'s stability gating; in practice not actually streaming on this hardware (`SR2_POSITION` likely `0` on Telem2) — the watchdog ends up watching the bridge's own outgoing pose instead. See `.claude/rules/ekf_home_watchdog.md` |
+| `global_position` | `/mavros/global_position/global` | GPS global position — **not required** for `set_home` with `current_gps=True`: ArduPilot's `handle_command_do_set_home` (`GCS_Common.cpp`) resolves "current location" via `ahrs.get_location()`, which reflects the ExternalNav/EKF3 position estimate even with no real GPS fix. Kept in the allowlist for `/mavros/home_position/home` debugging visibility and general telemetry. |
 | `home_position` | `/mavros/home_position/home` | Publishes current home position; useful for debugging whether auto-set home succeeded |
 | `imu` | `/mavros/imu/data` | FCU IMU data; needed for any mission that uses attitude information |
 | `vision_pose` | `/mavros/mavros/pose` (subscriber — see `sky_vision2`'s `bridge_node.md` for why not `/mavros/vision_pose/pose`) | **Core input:** receives position from bridge, forwards to FCU via `VISION_POSITION_ESTIMATE` |
@@ -152,10 +152,10 @@ Missing the wrong plugin causes silent, hard-to-diagnose failures:
 | Missing plugin | Symptom |
 |---|---|
 | `vision_pose` | Bridge publishes but FCU never receives position. EKF uses only IMU + baro. Drone drifts immediately in GUIDED. |
-| `command` | `arm()`, `takeoff()` service calls return "service not available". |
+| `command` | `arm()`, `takeoff()`, and `ekf_home_watchdog`'s `set_home` service calls return "service not available". |
 | `sys_status` | `/mavros/state` has no publisher. Code that waits for `state.connected == True` hangs forever. |
 | `sys_time` | ZED odometry timestamps drift relative to FCU timestamps. EKF may reject measurements as "too old" or "from the future". |
-| `global_position` | `set_home` with `current_gps=True` may report success but use an invalid position. |
+| `home_position` | No way to confirm `set_home` actually took effect via `/mavros/home_position/home` (the call itself is unaffected — see `global_position` row above). |
 
 ### How MAVROS loads this file
 

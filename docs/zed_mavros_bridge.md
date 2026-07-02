@@ -60,11 +60,11 @@ Move the drone physically after launch and echo `/mavros/mavros/pose`:
 | Move East | `position.y` | Increases |
 | Move Up | `position.z` | Decreases |
 
-## set_home — NOT needed
+## set_home — not called by the bridge; Lua is primary, ekf_home_watchdog is fallback
 
-ArduPilot sets the EKF origin automatically when it begins accepting vision data. Do not call `/mavros/cmd/set_home` from the bridge — the service is unreliable at startup (MAVROS command plugin isn't ready) and ArduPilot doesn't require it for ExternalNav operation.
+The bridge itself does not call `set_home`. The team's actual, trusted mechanism is an onboard ArduPilot Lua script (`indoor_2026/fc_scripts/ekf_set_home.lua`) — the drone flies with it. It's just not currently deployable on this Pixhawk 6C (no SD card; ArduPilot loads Lua scripts from the SD card) — deploy it there once a card is available.
 
-If you need to set home manually: use QGroundControl or Mission Planner "Set Home Here" button after the EKF converges.
+Until then, a separate ROS2 node, `ekf_home_watchdog` (`sky_vision2/sky_vision2/ekf_home_watchdog.py`), runs as a fallback: waits for vision to be moving and stable for a few seconds, then calls `/mavros/mavros/set_home` (`current_gps=True`) once. See `src/sky_vision2/.claude/rules/ekf_home_watchdog.md` — **not independently verified end-to-end**; a live test got `MAV_RESULT_FAILED`, most likely because the EKF *origin* (a separate concept from home — the geodetic reference point ArduPilot needs before `set_home` can succeed at all) was never established in that session. Contrary to an earlier version of this doc: ArduPilot does **not** auto-set the EKF origin just from accepting ExternalNav/vision data — origin only auto-sets from a GPS fix or range beacon, neither of which apply to this indoor, GPS-denied setup. How the team's real flights get origin established (GPS fix, a manual GCS step, or something else) hasn't been pinned down yet.
 
 ## estimator_status — may not publish
 

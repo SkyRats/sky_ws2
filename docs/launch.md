@@ -136,7 +136,7 @@ ros2 launch sky_vision2 mavros_fc.launch.py
 
 **HOME SET never appears:**
 - The EKF needs the drone to be still and the ZED to have good tracking. Check there's enough light and texture in the environment.
-- Check `ros2 topic echo /mavros/estimator_status` — `pos_horiz_rel` must become `True`.
+- Don't check `/mavros/estimator_status` — it never publishes on this hardware (`SR2_EXTRA3=0` on Telem2). Instead check `ros2 topic echo /mavros/mavros/pose` is moving and non-zero, and `ekf_home_watchdog`'s own log for "vision active" / "EKF stable" progress messages.
 
 **MAVROS won't connect to Pixhawk:**
 - Check the UART cable between Jetson and Pixhawk.

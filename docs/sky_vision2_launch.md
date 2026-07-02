@@ -151,8 +151,9 @@ LaunchDescription
   ├── DeclareLaunchArgument: zed_odom_topic (default /zed/zed_node/odom)
   ├── Node: mavros_node
   │     parameters: [apm_pluginlists_vision.yaml, apm_config.yaml, {fcu_url, gcs_url='', ...}]
-  └── Node: zed_mavros_bridge
-        parameters: [{zed_odom_topic: <arg>}]
+  ├── Node: zed_mavros_bridge
+  │     parameters: [{zed_odom_topic: <arg>}]
+  └── Node: ekf_home_watchdog
 ```
 
 ### Startup verification
@@ -306,11 +307,12 @@ LaunchDescription
   │     launch_arguments: {camera_model: <arg>}
   ├── Node: mavros_node
   │     parameters: [apm_pluginlists_vision.yaml, apm_config.yaml, {fcu_url, ...}]
-  └── Node: zed_mavros_bridge
-        parameters: [{zed_odom_topic: <arg>}]
+  ├── Node: zed_mavros_bridge
+  │     parameters: [{zed_odom_topic: <arg>}]
+  └── Node: ekf_home_watchdog
 ```
 
-All three processes start roughly simultaneously. The launch system does not enforce startup ordering between them — they race to initialize and each tolerates the others being absent at first:
+All four processes start roughly simultaneously. The launch system does not enforce startup ordering between them — they race to initialize and each tolerates the others being absent at first:
 
 - MAVROS waits for a FCU heartbeat over the serial link.
 - The ZED driver takes 10–15 s to initialize; the bridge receives no odom until then.
@@ -330,8 +332,9 @@ t=2-5 s  MAVROS receives first FCU heartbeat → /mavros/state connected: True
 t=10-15 s ZED SDK ready → /zed/zed_node/odom starts at ~30 Hz
 t=10-15 s Bridge receives first odom → starts publishing vision_pose (no vision_speed)
 t=10-15 s EKF begins fusing vision data → "EKF3 IMU0 is using external nav data" in FCU log
-t=15-20 s  No explicit set_home call — ArduPilot sets EKF origin automatically once
-           vision data arrives; keep the drone stationary ~20 s for a clean converge
+t=15-20 s ekf_home_watchdog node sees vision moving + stable for 5 s, calls
+          /mavros/mavros/set_home (current_gps=True) → "HOME SET from vision EKF" in its log;
+          keep the drone stationary ~20 s for a clean converge before this fires
 ```
 
 ### Startup verification
@@ -489,7 +492,7 @@ Domain IDs must be in `[0, 101]` on most platforms. `42` is arbitrary; any value
 
 ## See also
 
-- [ZedMavrosBridge](zed_mavros_bridge.md) — the bridge node these launch files start, with full QoS, frame correction, and EKF watchdog documentation
+- [ZedMavrosBridge](zed_mavros_bridge.md) — the bridge node these launch files start, with full QoS and frame correction documentation, plus set_home/`ekf_home_watchdog` notes
 - [sky_vision2 config](sky_vision2_config.md) — `fastdds_no_shm.xml` and `apm_pluginlists_vision.yaml` referenced by the launch files
 - [test_zed_odom](test_zed_odom.md) — synthetic ZED odom publisher for testing the bridge without hardware; the practical SITL workaround
 - [launch](launch.md) — the older `indoor_2026/launch/mavros_zed.launch.py` launch file, which uses an XML-include approach and the simpler `pose_relay` bridge
