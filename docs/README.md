@@ -30,6 +30,7 @@ imav_2026_ws/
 | [test_zed_odom.md](test_zed_odom.md) | `ZedOdomPublisher` + `BridgeVerifier` — offline bridge testing with synthetic odometry | `src/sky_vision2/sky_vision2/test_zed_odom.py` |
 | [sky_vision2_launch.md](sky_vision2_launch.md) | Four launch file variants: ZED only, MAVROS+bridge only, full stack FC, full stack SITL | `src/sky_vision2/launch/` |
 | [sky_vision2_config.md](sky_vision2_config.md) | `fastdds_no_shm.xml` — DDS SHM fix; `apm_pluginlists_vision.yaml` — MAVROS plugin allowlist | `src/sky_vision2/config/` |
+| [mavros_patched.md](mavros_patched.md) | Optional overlay build of MAVROS (`odraudE31/mavros`, `fix/vision-pose-yaw-clamping`) fixing the `vision_pose_estimate` Eigen yaw-clamping bug | `~/sky_ws2/src/mavros_patched` (symlink, not tracked in this repo) |
 
 ### indoor_2026 — mission package and legacy bridge
 
@@ -156,7 +157,7 @@ These must be set on the FCU before flying with visual odometry:
 ## Dependencies
 
 - ROS2 Humble
-- `mavros` + `mavros_msgs`
+- `mavros` + `mavros_msgs` — apt by default; optionally overridden by a patched `mavros` overlay build, see [mavros_patched.md](mavros_patched.md)
 - `zed_wrapper` (ZED ROS2 wrapper v5, `src/zed-ros2-wrapper/`)
 - `nav_msgs`, `geometry_msgs`, `sensor_msgs`
 - Python: `opencv-python`, `numpy`
