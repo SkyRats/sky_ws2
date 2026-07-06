@@ -13,7 +13,7 @@ Hardware: NVIDIA Jetson + ZED2i (USB-C) + Pixhawk 6C (Telem2 UART `/dev/ttyTHS1:
 ```bash
 # Always build before launching — launch files reference installed paths
 cd ~/imav_2026_ws
-colcon build --packages-select sky_vision2
+colcon build --packages-select sky_vision2 sky_navigation
 source install/setup.bash
 
 # Full hardware stack (ZED + MAVROS + bridge)
@@ -56,24 +56,27 @@ colcon test-result --verbose
 | Package | Role |
 |---------|------|
 | `src/sky_vision2/` | **Production** — ZED→MAVROS bridge, all launch files, DDS/plugin config |
-| `src/indoor_2026/` | Legacy reference — simpler bridge (`pose_relay`) + older launch file |
+| `src/sky_navigation/` | **Production** — drone movement API (position + velocity setpoints via MAVROS) |
+| `src/indoor_2026/` | Full competition stack — flight controller FSM (arm/takeoff/land) |
 | `src/ardupilot/` | ArduPilot firmware source (submodule, not built via colcon) |
 | `src/zed-ros2-wrapper/` | ZED SDK ROS2 driver (submodule) |
 
-`sky_vision2` is the current production stack. `indoor_2026/pose_relay` is kept for reference only — **never run both bridges at the same time** (duplicate messages on `/mavros/vision_pose/pose` confuse the EKF).
+`sky_vision2` is the production bridge. **Never run two bridge instances simultaneously** — duplicate messages on the vision pose topic corrupt the EKF. Verify with `ros2 node list | grep zed_mavros_bridge`.
 
 ### Data flow
 
 ```
-ZED2i → /zed/zed_node/odom (nav_msgs/Odometry, ~30 Hz, BEST_EFFORT QoS)
-      → ZedMavrosBridge (sky_vision2/zed_mavros_bridge.py)
-          ├─ negates position.y and twist.linear.y (ZED Y=West → NED Y=East)
-          ├─ negates quaternion qy and qz (pitch/yaw sign flip)
-          ├─ /mavros/vision_pose/pose    → VISION_POSITION_ESTIMATE → ArduPilot EKF3
-          └─ /mavros/vision_speed/speed_twist → VISION_SPEED_ESTIMATE → ArduPilot EKF3
+ZED2i → /zed/zed_node/odom (nav_msgs/Odometry, ~30 Hz, BEST_EFFORT)
+      → sky_vision2/zed_mavros_bridge
+          └─ /mavros/mavros/pose  → VISION_POSITION_ESTIMATE → ArduPilot EKF3
+
+sky_vision2/ekf_home_watchdog → /mavros/mavros/set_home  (once EKF converges)
+
+indoor_2026/flight_controller → set_mode + arming + takeoff → ArduPilot
+sky_navigation/drone_motion   → setpoint_position/local or setpoint_velocity/cmd_vel → ArduPilot
 ```
 
-The bridge also watches `/mavros/estimator_status` and auto-calls `set_home` once `pos_horiz_rel=True` for 5 consecutive seconds.
+See `src/sky_vision2/CLAUDE.md` for the full bridge frame-convention details.
 
 ### Key source files
 
@@ -82,7 +85,8 @@ The bridge also watches `/mavros/estimator_status` and auto-calls `set_home` onc
 - `src/sky_vision2/launch/` — four launch file variants (see below)
 - `src/sky_vision2/config/fastdds_no_shm.xml` — disables DDS shared-memory transport
 - `src/sky_vision2/config/apm_pluginlists_vision.yaml` — MAVROS plugin allowlist
-- `src/indoor_2026/indoor_2026/pose_relay.py` — legacy bridge (position only, no velocity, no auto-home)
+- `src/sky_navigation/sky_navigation/drone_motion.py` — DroneMotion node (local pose, body pose, body velocity, yaw)
+- `src/indoor_2026/indoor_2026/flight_controller.py` — FSM: arm → takeoff → land/RTL
 - `media/imagens/indoor_2025/` — legacy mission scripts (communication2.py, mission.py, mission_1.py, etc.)
 
 ### Launch file quick-reference
@@ -93,6 +97,26 @@ The bridge also watches `/mavros/estimator_status` and auto-calls `set_home` onc
 | `mavros_fc.launch.py` | MAVROS + bridge | Use when ZED already running; sets FastDDS no-SHM |
 | `zed.launch.py` | ZED only | Camera test |
 | `zed_mavros_sitl.launch.py` | Same as fc for now | Not yet adapted for SITL |
+
+## Drone movement (sky_navigation)
+
+`sky_navigation/drone_motion` handles all position and velocity setpoints after takeoff. It does not arm or take off — the `indoor_2026/flight_controller` FSM does that.
+
+```bash
+ros2 run sky_navigation drone_motion
+```
+
+Movement API (call from your mission node):
+
+| Method | Setpoint type | Frame |
+|--------|--------------|-------|
+| `local_pose(x, y, z, yaw_deg)` | Position, one-shot | Local ENU (East-North-Up) |
+| `body_pose(fwd, left, up, yaw_deg)` | Position, one-shot | Body FLU offset from current pose |
+| `body_velocity(fwd, left, up, yaw_rate_deg)` | Velocity, 20 Hz loop | Body FLU |
+| `set_yaw(yaw_deg)` | Position, one-shot | Holds position, rotates to heading |
+| `stop()` | — | Cancels velocity setpoint |
+
+See `src/sky_navigation/CLAUDE.md` and `src/sky_navigation/.claude/rules/drone_motion.md` for the full reference.
 
 ## FastDDS SHM note
 
