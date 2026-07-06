@@ -13,3 +13,6 @@
 [submodule "src/indoor_2026"]
 	path = src/indoor_2026
 	url = git@github.com:SkyRats/indoor_2026.git
+[submodule "src/sky_navigation"]
+	path = src/sky_navigation
+	url = git@github.com:SkyRats/sky_navigation.git
