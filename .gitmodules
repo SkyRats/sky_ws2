@@ -1,11 +1,3 @@
-[submodule "src/ardupilot"]
-	path = src/ardupilot
-	url = https://github.com/ArduPilot/ardupilot.git
-
-[submodule "src/zed-ros2-wrapper"]
-	path = src/zed-ros2-wrapper
-	url = https://github.com/stereolabs/zed-ros2-wrapper.git
-
 [submodule "src/sky_vision2"]
 	path = src/sky_vision2
 	url = git@github.com:SkyRats/sky_vision2.git
