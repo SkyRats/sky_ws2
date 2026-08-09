@@ -63,8 +63,8 @@ The `*_sitl.launch.py` variants do not set the FastDDS profile — clear
 export ROS_DOMAIN_ID=42
 ros2 topic echo /mavros/state --once                # connected: True
 ros2 topic hz /zed/zed_node/odom                    # ~30 Hz after ~15 s
-ros2 topic hz /mavros/mavros/pose                   # ~30 Hz — vision in
-ros2 topic hz /mavros/mavros/local_position/pose    # ~10 Hz once EKF converges
+ros2 topic hz /mavros/vision_pose/pose              # ~30 Hz — vision in
+ros2 topic hz /mavros/local_position/pose           # ~10 Hz once EKF converges
 ```
 
 Then confirm the command relay before running a mission:

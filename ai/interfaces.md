@@ -5,25 +5,41 @@ more than one repo, its definition lives here and the repos point at it.
 
 ## The split: ROS carries positioning, SkyMAVLink carries commands
 
-Two paths share one FC link. MAVROS is the only process on the serial port and routes
-for both.
+Two paths share one FC link. **`mavp2p` owns the physical link** and fans it into two
+UDP endpoints, so neither half competes for the serial port.
 
 ```
+                                    ┌─ udps:127.0.0.1:14551 ─► MAVROS ─► ROS
+FC serial ─► mavp2p ────────────────┤        (vision in, state feedback)
+  (serial:/dev/ttyACM0:921600)      └─ udps:127.0.0.1:14552 ─► SkyMAVLink
+                                             (all movement commands)
+
 ZED2i → /zed/zed_node/odom (nav_msgs/Odometry, ~30 Hz, BEST_EFFORT)
       → sky_vision2/zed_mavros_bridge
-          └─ /mavros/mavros/pose → MAVROS vision_pose plugin (ENU→NED)
+          └─ /mavros/vision_pose/pose → vision_pose plugin (ENU→NED)
                → VISION_POSITION_ESTIMATE → ArduPilot EKF3
 
 mission → skymavlink.SkyMAVLink (pymavlink, udpout:127.0.0.1:14552)
-      → MAVROS gcs_url relay (udp://:14552@) → FC serial
-          └─ mode / arm / takeoff / SET_POSITION_TARGET_LOCAL_NED → ArduPilot
+          └─ mode / arm / takeoff / SET_POSITION_TARGET_LOCAL_NED
           ← HEARTBEAT / LOCAL_POSITION_NED / ATTITUDE
 ```
 
+Both endpoints are UDP **servers** (`udps`), so each client must heartbeat first for
+mavp2p to learn its return address.
+
+Launch: `ros2 launch sky_vision2 mavros_mavp2p_fc.launch.py`. The direct-serial
+variants (`zed_mavros_fc`, `mavros_fc`) skip mavp2p — MAVROS then owns the port and
+SkyMAVLink cannot reach the FC at all.
+
+> **`mavp2p` is not currently installed** (`which mavp2p` → nothing). Get it from
+> https://github.com/bluenviron/mavp2p/releases. `config/mavp2p.service` in
+> `sky_vision2` runs it as a systemd unit instead.
+
 Four invariants keep the halves from fighting. Breaking any one is a flight hazard.
 
-- **MAVROS never commands.** The plugin allowlists load no `setpoint_*` plugins.
-  Never add one — two GUIDED sources give the EKF contradictory targets.
+- **MAVROS never commands.** `sky_vision2/config/apm_pluginlists_vision.yaml` loads no
+  `setpoint_*` plugins, deliberately. Never add one — two GUIDED sources give the EKF
+  contradictory targets.
 - **SkyMAVLink never publishes vision.** It parses only `HEARTBEAT`,
   `LOCAL_POSITION_NED`, `ATTITUDE`.
 - **Distinct MAVLink component ids.** MAVROS transmits as `(1, 191)`; SkyMAVLink as
@@ -32,36 +48,24 @@ Four invariants keep the halves from fighting. Breaking any one is a flight haza
 - **Opposite frames.** The vision half is ENU/FLU; SkyMAVLink is NED/FRD. Never copy
   a frame snippet between them.
 
-MAVROS is therefore on the critical path for commands, not just vision. If it dies
-mid-flight, setpoints stop and ArduPilot's `GUID_TIMEOUT` (~3 s) brakes the drone.
-Pass `gcs_url:=''` to any launch file to disable the relay.
-
 ## Topic names
 
 | Topic | Direction | QoS | Notes |
 |---|---|---|---|
 | `/zed/zed_node/odom` | ZED → bridge | **BEST_EFFORT** | A RELIABLE subscriber silently receives nothing |
-| `/mavros/mavros/pose` | bridge → MAVROS | RELIABLE | Vision in. **Not** `/mavros/vision_pose/pose` |
-| `/mavros/mavros/local_position/pose` | MAVROS → missions | RELIABLE | EKF output, ~10 Hz after convergence |
-| `/mavros/state` | MAVROS → missions | — | `connected`, `armed`, `mode` |
+| `/mavros/vision_pose/pose` | bridge → MAVROS | RELIABLE | Vision in |
+| `/mavros/local_position/pose` | MAVROS → consumers | RELIABLE | EKF output, ~10 Hz after convergence |
+| `/mavros/state` | MAVROS → consumers | — | `connected`, `armed`, `mode` |
 
-### Why the vision topic is `/mavros/mavros/pose`
+> **Resolved 2026-08-08** (`sky_vision2` `6063909`, SITL-verified). These topics were
+> briefly `/mavros/mavros/...`: the launch files ran `mavros_node` with `name='mavros'`
+> and no `namespace:=`, which flattened every plugin sub-node into one node and
+> collapsed plugin-relative topics onto a shared namespace. `local_position` published
+> `~/pose` and `vision_pose` subscribed `~/pose`, so the EKF's own output was fed back
+> in as `VISION_POSITION_ESTIMATE`. The namespace fix removed the collision. If you
+> find a doc still saying `/mavros/mavros/pose`, it predates that commit.
 
-The MAVROS `vision_pose` plugin subscribes to a **relative** topic (`~pose`). The
-launch files run `mavros_node` with `name='mavros'` and no `namespace:=` override, so
-its effective namespace is `/mavros/mavros` and the relative subscription resolves to
-`/mavros/mavros/pose` — not the `/mavros/vision_pose/pose` in generic MAVROS docs.
-
-Re-check with `ros2 node info /mavros/mavros` after any MAVROS or launch-file bump.
-
-> **Open issue — vision topic collision (found 2026-08-07, not yet fixed).**
-> `Node(name='mavros')` flattens every plugin sub-node into one node, so
-> plugin-relative topics lose their per-plugin namespace. `local_position` publishes
-> `~/pose` and `vision_pose` subscribes `~/pose` — both resolve to
-> `/mavros/mavros/pose`. Measured on a single clean instance: 1 publisher +
-> 1 subscriber on that topic with no bridge running. The EKF's own local position is
-> fed back in as `VISION_POSITION_ESTIMATE`, interleaved with the ZED bridge's pose.
-> Fix is to drop `name='mavros'` and point the bridge at `/mavros/vision_pose/pose`.
+Re-check with `ros2 node info /mavros` after any MAVROS or launch-file bump.
 
 ## Frames
 
@@ -156,7 +160,7 @@ never publishes. A ROS-side `ekf_home_watchdog` node held this logic between
 ## Bridge exclusivity
 
 `sky_vision2` is the only package that runs `zed_mavros_bridge`. **Never run two
-instances** — duplicate messages on `/mavros/mavros/pose` corrupt the EKF.
+instances** — duplicate messages on `/mavros/vision_pose/pose` corrupt the EKF.
 
 ```bash
 ros2 node list | grep zed_mavros_bridge   # must show exactly one
@@ -164,11 +168,11 @@ ros2 node list | grep zed_mavros_bridge   # must show exactly one
 
 ## What to check when the drone drifts
 
-1. Confirm `ros2 topic hz /mavros/mavros/pose` is ~30 Hz.
-2. Echo `/mavros/mavros/pose` — those values are **ENU**, before MAVROS converts.
+1. Confirm `ros2 topic hz /mavros/vision_pose/pose` is ~30 Hz.
+2. Echo `/mavros/vision_pose/pose` — those values are **ENU**, before MAVROS converts.
    Move the drone toward its boot heading (which becomes NED North): `position.y`
    increases, because boot heading maps to ENU +Y after the yaw alignment.
 3. Check `EK3_SRC1_POSXY=6` and `VISO_TYPE=1` are set on the FCU.
 4. Confirm exactly one bridge node is running (above).
-5. Confirm nothing else is publishing to `/mavros/mavros/pose` — see the open topic
-   collision issue above; MAVROS's own `local_position` plugin publishes there too.
+5. Confirm nothing else publishes to `/mavros/vision_pose/pose`:
+   `ros2 topic info /mavros/vision_pose/pose` should show exactly 1 publisher.
