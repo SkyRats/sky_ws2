@@ -4,6 +4,21 @@ log/
 src.zip
 media/
 
+# Nested repositories are managed by sky_ws2.repos (vcstool), not by git.
+# See ai/decisions.md entry #1. No negations are needed — main tracks no real
+# file under src/ (verified 2026-08-08).
+/src/*
+/Micro-XRCE-DDS-Gen/
+/nsrc/
+
+# Run artifacts
+/terrain/
+/logs/
+/eeprom.bin
+/mav.parm
+/mav.tlog
+/mav.tlog.raw
+
 **/__pycache__/
 **/*.pyc
 **/*.egg-info/

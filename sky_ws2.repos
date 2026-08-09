@@ -1,0 +1,99 @@
+# sky_ws2.repos — vcstool manifest for every nested repository.
+#
+# Reconstruct a workspace:
+#   git clone git@github.com:SkyRats/sky_ws2.git ~/sky_ws2 && cd ~/sky_ws2
+#   vcs import . < sky_ws2.repos
+#   git -C Micro-XRCE-DDS-Gen submodule update --init --recursive   # 2 submodules
+#   git -C src/ardupilot      submodule update --init --recursive   # 15 submodules
+#
+# vcstool does NOT recurse into submodules — the two commands above are required.
+#
+# Milestone lock:
+#   vcs export --exact . > ai/locks/<date>-<milestone>.repos
+#   (prune ardupilot/modules/* and Micro-XRCE-DDS-Gen/thirdparty/* from the result)
+#
+# Ours    -> branch name, so `vcs pull` picks up teammates' work.
+# Vendored-> exact SHA, or tag when HEAD sits exactly on one.
+# Rationale and rejected alternatives: ai/decisions.md entry #1.
+
+repositories:
+
+  # ---------------- ours (SkyRats) ----------------
+
+  src/sky_vision2:
+    type: git
+    url: git@github.com:SkyRats/sky_vision2.git
+    version: imav_2026
+
+  src/indoor_2026:
+    type: git
+    url: git@github.com:SkyRats/indoor_2026.git
+    version: main
+
+  src/sky_navigation:
+    type: git
+    url: git@github.com:SkyRats/sky_navigation.git
+    version: main
+
+  src/sky_mavlink:
+    type: git
+    url: git@github.com:SkyRats/sky_mavlink.git
+    version: sitl-validation-fixes
+
+  src/outdoor_2025:
+    type: git
+    url: git@github.com:SkyRats/outdoor_2025.git
+    version: dev_swarm
+
+  # DETACHED HEAD, 1 commit behind origin/main. Pinned by SHA to preserve the
+  # current state. Change to `main` once the branch is restored — ai/decisions.md #1.
+  src/sky_sim2:
+    type: git
+    url: git@github.com:SkyRats/sky_sim2.git
+    version: 125c71acb4b663ea06f13d79be73f3c1409220f0
+
+  # ---------------- vendored (upstream) ----------------
+
+  src/ardupilot:
+    type: git
+    url: https://github.com/ArduPilot/ardupilot.git
+    version: f04add8b1b0ef6ff8051d2e58e6e10cd4652964d   # ArduPilot-4.6.0-beta1-4037-g…
+
+  src/ardupilot_gazebo:
+    type: git
+    url: https://github.com/ArduPilot/ardupilot_gazebo.git
+    version: 3791592512342f76ede2221df48c82089e114411   # repo has no tags
+
+  src/ardupilot_gz:
+    type: git
+    url: https://github.com/ArduPilot/ardupilot_gz.git
+    version: 58f47263d5a39eeeb9f79400cf1f73b3103a400f   # repo has no tags
+
+  src/ros_gz:
+    type: git
+    url: https://github.com/gazebosim/ros_gz.git
+    version: 0.244.20                                    # exact tag
+
+  src/sdformat_urdf:
+    type: git
+    url: https://github.com/ros/sdformat_urdf.git
+    version: 4be22a54e48562323f3e9deecbe1bde894eb7508   # 1.0.1-8-g…
+
+  src/micro_ros_agent:
+    type: git
+    url: https://github.com/micro-ROS/micro-ROS-Agent.git
+    version: 4f363a79ae96aed39dcc5269f53f73f6a70d3a2c   # 3.0.6-3-g…
+
+  src/zed-ros2-wrapper:
+    type: git
+    url: https://github.com/stereolabs/zed-ros2-wrapper.git
+    version: 74f4813d7458a6fd458c7d4210fb6002e470cb19   # humble-v5.0.0-1-g…
+
+  Micro-XRCE-DDS-Gen:
+    type: git
+    url: https://github.com/ardupilot/Micro-XRCE-DDS-Gen.git
+    version: v4.7.1                                      # exact tag
+
+# NOT covered by this manifest — see "Reproducibility gaps" in ai/repos.md:
+#   src/ardupilot_sitl_models   empty directory, no upstream recorded
+#   terrain/, eeprom.bin, mav.parm, mav.tlog*, logs/   run artifacts
