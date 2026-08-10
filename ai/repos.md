@@ -10,13 +10,16 @@ The workspace root plus 14 nested repositories. Pinning mechanism and rationale:
 | `.` | `SkyRats/sky_ws2` | `imav_2026` | workspace root — shared docs, `.repos` manifest |
 | `src/sky_vision2` | `SkyRats/sky_vision2` | `imav_2026` | ZED→MAVROS bridge, launch files, DDS/plugin config |
 | `src/indoor_2026` | `SkyRats/indoor_2026` | `main` | IMAV 2026 competition missions |
-| `src/sky_navigation` | `SkyRats/sky_navigation` | `main` | `SkyMAVLink` — pip package, **not** colcon |
-| `src/sky_mavlink` | `SkyRats/sky_mavlink` | `sitl-validation-fixes` | second checkout of the same library — see `decisions.md` #3 |
+| `src/sky_navigation` | **`SkyRats/sky_mavlink`** | `main` | `SkyMAVLink` — pip package, **not** colcon. Repo was renamed; directory name still says `sky_navigation`. |
 | `src/outdoor_2025` | `SkyRats/outdoor_2025` | `dev_swarm` | previous season; not part of the indoor stack |
 | `src/sky_sim2` | `SkyRats/sky_sim2` | *(detached `125c71ac`)* | simulation assets |
 
 Only three of these are on the IMAV 2026 critical path: `sky_vision2`,
 `indoor_2026`, `sky_navigation`.
+
+> `src/sky_mavlink/` is a **redundant checkout of the same repository** on an
+> already-merged branch — not a separate project. See `ai/decisions.md` #6. It should
+> be removed; nothing in it is unpushed.
 
 ## Vendored
 

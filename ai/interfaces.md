@@ -44,7 +44,7 @@ Four invariants keep the halves from fighting. Breaking any one is a flight haza
   `LOCAL_POSITION_NED`, `ATTITUDE`.
 - **Distinct MAVLink component ids.** MAVROS transmits as `(1, 191)`; SkyMAVLink as
   `(1, 192)`. Same address on one link makes `COMMAND_ACK` routing ambiguous.
-  `src/sky_mavlink` still uses 191 — see `ai/decisions.md` #3.
+  Set once in `skymavlink/core.py`; nothing else needs to change.
 - **Opposite frames.** The vision half is ENU/FLU; SkyMAVLink is NED/FRD. Never copy
   a frame snippet between them.
 

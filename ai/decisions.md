@@ -18,11 +18,11 @@ assume resolved. Check this list before planning work in this tree.
 | 3 | `src/sky_sim2` at detached HEAD, 1 commit behind `origin/main`; pinned by SHA in `sky_ws2.repos` | Eduardo fixes HEAD, then the pin becomes `main` | nothing |
 | 4 | **SD card presence in the Pixhawk 6C is unverified.** Written as *unverified* in 4 places rather than guessed | Eduardo checks the FC physically | arming — no card means no Lua, no home-set, no arm |
 | 5 | ~~`DroneMotion` broken import~~ — **RESOLVED**, see entry #4 | — | nothing |
-| 6 | `sky_mavlink` component 191 collision — entry #3 below | out of writable scope | any mission run from that checkout |
+| 6 | ~~`sky_mavlink` component 191 collision~~ — **WITHDRAWN**, see entry #6 | — | nothing |
 | 7 | `mavp2p` binary is not installed (`which mavp2p` → nothing) | needs install | the recommended launch path, `mavros_mavp2p_fc.launch.py` |
 
-Item 4 is the one most likely to waste a field session. Item 6 can bite in the air.
-Item 7 blocks the whole command path on hardware.
+Item 4 is the one most likely to waste a field session. Item 7 blocks the whole
+command path on hardware. Items 5 and 6 are closed — see entries #4 and #6.
 
 ---
 
@@ -163,8 +163,10 @@ missions runnable.
 ## 3. `sky_mavlink` transmits as MAVLink component 191 — collides with MAVROS
 
 **Date:** 2026-08-08
-**Status:** OPEN — flight hazard, out of writable scope, left live deliberately
-**Scope:** `src/sky_mavlink` (and its divergence from `src/sky_navigation`)
+**Status:** ~~OPEN~~ — **WITHDRAWN, see entry #6.** There is no second repository and
+no divergence: `sky_navigation` and `sky_mavlink` are one repo that was renamed, and
+the "191 checkout" was an already-merged branch. Kept as the record of the error.
+**Scope:** `src/sky_mavlink` (and its supposed divergence from `src/sky_navigation`)
 
 ### The collision
 
@@ -280,3 +282,63 @@ clients of the same router, and two endpoints sharing one MAVLink address still 
 https://github.com/bluenviron/mavp2p/releases. Until it is installed, only the
 direct-serial launch variants work, and on those SkyMAVLink cannot reach the FC at
 all because MAVROS holds the port exclusively.
+
+---
+
+## 6. Withdraws #3 — `sky_navigation` and `sky_mavlink` are one repository, renamed
+
+**Date:** 2026-08-10
+**Status:** closed
+**Withdraws:** entry #3
+
+### What #3 got wrong
+
+Entry #3 recorded a "flight hazard": two checkouts of the SkyMAVLink library
+disagreeing on their MAVLink component id (191 vs 192), left live because both repos
+were out of the restructure's writable scope.
+
+There are not two repositories. Pushing revealed it:
+
+```
+remote: This repository moved. Please use the new location:
+remote:   git@github.com:SkyRats/sky_mavlink.git
+```
+
+`SkyRats/sky_navigation` was **renamed** to `SkyRats/sky_mavlink`. Both working
+copies share root commit `9251901` — the same history. `src/sky_mavlink` was simply a
+second checkout sitting on branch `sitl-validation-fixes`, whose HEAD is **already
+contained in `origin/main`**. Its "component 191" is not a divergent design decision,
+just an older commit from before 192 was introduced. That checkout had 0 dirty files,
+0 unpushed commits and 0 stashes.
+
+So there was never anything to reconcile, and no hazard beyond running a mission from
+a stale checkout of a merged branch.
+
+### Decision
+
+- **`SkyRats/sky_mavlink` is the canonical repo.** `src/sky_navigation`'s remote now
+  points at the new URL directly rather than relying on GitHub's redirect, which is
+  not something to depend on.
+- **`sky_ws2.repos` carries one entry, not two.** It previously listed the same
+  repository twice under two paths and two URLs; `vcs import` would have cloned it
+  twice and produced exactly the confusion that caused entry #3.
+- **The local directory stays `src/sky_navigation`** for now: it is what
+  `pip install -e` and the docs reference, and renaming it is a separate change.
+  The path/repo-name mismatch is cosmetic.
+
+### Follow-up, not done
+
+`src/sky_mavlink/` is a redundant checkout of a merged branch and should be removed.
+It is not deleted here — deleting a git working copy is the user's call:
+
+```bash
+mv ~/sky_ws2/src/sky_mavlink ~/attic/sky_mavlink-stale-20260810
+```
+
+Verified safe first: nothing dirty, nothing unpushed, no stashes, branch merged.
+
+### Lesson
+
+A GitHub rename is invisible in `git remote -v` until you push. Two directories with
+different names and different branch checkouts looked like two diverging libraries for
+two days. `git rev-list --max-parents=0` (compare root commits) settles it in seconds.

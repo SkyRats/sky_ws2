@@ -30,15 +30,14 @@ repositories:
     url: git@github.com:SkyRats/indoor_2026.git
     version: main
 
+  # The SkyMAVLink library. The GitHub repo was renamed sky_navigation ->
+  # sky_mavlink; the old URL only works via GitHub's redirect, so pin the new
+  # one. The local directory is still named sky_navigation because that is what
+  # `pip install -e` and the docs reference — cosmetic mismatch, not a second repo.
   src/sky_navigation:
     type: git
-    url: git@github.com:SkyRats/sky_navigation.git
-    version: main
-
-  src/sky_mavlink:
-    type: git
     url: git@github.com:SkyRats/sky_mavlink.git
-    version: sitl-validation-fixes
+    version: main
 
   src/outdoor_2025:
     type: git
